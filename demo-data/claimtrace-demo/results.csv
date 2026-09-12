@@ -1,0 +1,11 @@
+experiment,dataset,method,accuracy,noise_level
+exp-01,cifar10,baseline,70.0,0.0
+exp-01,cifar10,ours,78.0,0.0
+exp-02,imagenet,baseline,60.0,0.0
+exp-02,imagenet,ours,68.0,0.0
+exp-03,svhn,baseline,80.0,0.0
+exp-03,svhn,ours,88.0,0.0
+exp-04,mnist,baseline,90.0,0.0
+exp-04,mnist,ours,95.0,0.0
+exp-05,fashion,baseline,50.0,0.0
+exp-05,fashion,ours,63.0,0.0

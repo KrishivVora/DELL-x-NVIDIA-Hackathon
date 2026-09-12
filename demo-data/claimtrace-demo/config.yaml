@@ -1,0 +1,4 @@
+datasets: [cifar10, imagenet, svhn, mnist, fashion]
+epochs: 50
+batch_size: 128
+seed: 7
