@@ -54,6 +54,7 @@ fi
 # 2. scratchpad + task outputs (subagent transcripts)
 for d in /tmp/claude-1000/*/*/; do
   [ -d "$d" ] || continue
+  case "$d" in */bash-edit-diff/*) continue;; esac   # Claude's diff cache: ~700 MB, worthless
   dest="$ARCHIVE/scratchpad/$(basename "$(dirname "$d")")/$(basename "$d")"
   mkdir -p "$dest"
   rsync -a --exclude='wt-*/' --exclude='*.venv/' --exclude='node_modules/' --exclude='bash-edit-diff/' "$d" "$dest/"
