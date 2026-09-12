@@ -8,9 +8,10 @@
 # Re-runnable. Does not recreate or destroy anything.
 #
 # Verified on the GB10 (NemoClaw v0.0.123, Hermes 0.20.6):
-#   - `upload DIR/ DEST/` nests DIR inside DEST, so upload into the parent.
-#   - /usr/local/bin is read-only in the sandbox; the wrapper goes to
-#     /sandbox/.local/bin, which is added to PATH in /sandbox/.bashrc.
+#   - `upload SRC DEST/` puts SRC *inside* DEST (files too), so always upload into the parent.
+#   - /usr/local/bin and /opt/hermes/.venv are read-only in the sandbox; the
+#     wrapper goes to /sandbox/.local/bin (added to PATH in /sandbox/.bashrc)
+#     and pip packages to $APP_DIR/vendor (on PYTHONPATH via the wrapper).
 #   - retrieval runs on the host (labmate_rag serve --bind auto); the sandbox
 #     reaches it at http://host.openshell.internal:8700 through the
 #     labmate-rag-host policy preset.
@@ -47,13 +48,22 @@ say "Uploading the labmate and labmate_rag packages"
 "$NC" "$SANDBOX" exec -- rm -rf "$APP_DIR/labmate" "$APP_DIR/labmate_rag"
 "$NC" "$SANDBOX" upload ./labmate/ "$APP_DIR/"
 "$NC" "$SANDBOX" upload ./labmate_rag/ "$APP_DIR/"
-"$NC" "$SANDBOX" upload ./bin/labmate "$BIN_DIR/labmate"
+"$NC" "$SANDBOX" exec -- rm -rf "$BIN_DIR/labmate"
+"$NC" "$SANDBOX" upload ./bin/labmate "$BIN_DIR/"
 "$NC" "$SANDBOX" exec -- chmod +x "$BIN_DIR/labmate"
-"$NC" "$SANDBOX" exec -- sh -c "grep -q '$BIN_DIR' /sandbox/.bashrc || echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> /sandbox/.bashrc"
+# Hermes sources ~/.profile and ~/.bashrc before terminal commands; login
+# shells read only ~/.profile, and .bashrc may return early when
+# non-interactive, so the PATH line goes in both.
+for rc in /sandbox/.profile /sandbox/.bashrc; do
+  "$NC" "$SANDBOX" exec -- sh -c "grep -q '$BIN_DIR' $rc || echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> $rc"
+done
 
 say "Ensuring pandas is present"
-"$NC" "$SANDBOX" exec -- python3 -c 'import pandas; print("pandas", pandas.__version__)' \
-  || "$NC" "$SANDBOX" exec -- pip install --no-input pandas
+# /opt/hermes/.venv is read-only for the sandbox user, so third-party packages
+# go to a vendor directory that bin/labmate puts on PYTHONPATH.
+VENDOR="$APP_DIR/vendor"
+"$NC" "$SANDBOX" exec -- env PYTHONPATH="$VENDOR" python3 -c 'import pandas; print("pandas", pandas.__version__)' \
+  || "$NC" "$SANDBOX" exec -- python3 -m pip install --no-input --quiet --target "$VENDOR" pandas
 
 say "Allowing the sandbox to reach the host retrieval API (policy preset)"
 "$NC" "$SANDBOX" policy add --from-file ./policy/labmate-rag-host.yaml --yes
@@ -66,7 +76,7 @@ done
 
 say "Smoke test inside the sandbox"
 "$NC" "$SANDBOX" exec --workdir "$APP_DIR" -- env \
-  PYTHONPATH="$APP_DIR" LABMATE_PROJECTS_ROOT="$PROJECTS_DIR" LABMATE_STATE_ROOT="$STATE_DIR" \
+  PYTHONPATH="$APP_DIR:$VENDOR" LABMATE_PROJECTS_ROOT="$PROJECTS_DIR" LABMATE_STATE_ROOT="$STATE_DIR" \
   python3 -m labmate --project __none__ project-status \
   || echo "(expected: 'project not found' — the tool surface is reachable)"
 "$NC" "$SANDBOX" exec -- curl -sf -m 5 http://host.openshell.internal:8700/api/health \
@@ -92,6 +102,6 @@ Next:
   3. Prep a meeting:
        $NC $SANDBOX exec -- hermes -z "Prep me for my next meeting on <id>" -s meeting-prep --yolo
   4. Always-on watcher:
-       $NC $SANDBOX exec -- env PYTHONPATH=$APP_DIR LABMATE_PROJECTS_ROOT=$PROJECTS_DIR LABMATE_STATE_ROOT=$STATE_DIR \\
+       $NC $SANDBOX exec -- env PYTHONPATH=$APP_DIR:$VENDOR LABMATE_PROJECTS_ROOT=$PROJECTS_DIR LABMATE_STATE_ROOT=$STATE_DIR \\
          python3 -m labmate.watcher --project <id> --interval 5
 NOTE
