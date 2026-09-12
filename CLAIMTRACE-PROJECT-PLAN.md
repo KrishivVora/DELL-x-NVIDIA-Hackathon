@@ -1,14 +1,17 @@
 # ClaimTrace: Local Research Integrity Agent
 
-> **Revision 3, 2026-09-12 (afternoon ET).** This revision reworks the original plan to match this morning's rule changes and the stack now running on the GB10:
+> **Revision 4, 2026-09-12 (afternoon ET).** This revision reworks the original plan to match this morning's rule changes and the stack now running on the GB10:
 > - **Hermes Agent** runs in an **OpenShell** sandbox managed by **NemoClaw**.
 > - **MongoDB** is the system of record.
 > - A host worker handles files and calculations; the sandboxed agent handles the steps that need a model.
-> - **Slack** is the team front-end.
+> - **Slack** is the team front-end, with sanitized messages by default.
 > - The agent runs a scheduled sweep.
 > - New guidelines cover working with the local model.
 >
-> **Still open (team decisions):** MVP scope and the cut list (§20), and the business model details (§3).
+> **Still open (team decisions):**
+> - MVP scope and the cut list (§20).
+> - The business model details (§3).
+> - Two choices from Shrijani's parallel draft: Slack only or Slack plus the local dashboard, and direct file reading or local embeddings with MongoDB Vector Search for finding evidence (§11).
 
 ## 1. Executive Summary
 
@@ -17,7 +20,7 @@ ClaimTrace is an always-on, local-first research integrity agent for researchers
 It runs on a Dell Pro Max with GB10:
 - **Hermes Agent** works inside an NVIDIA OpenShell sandbox managed by NemoClaw, using a locally served Qwen3.6 model.
 - **A host worker** handles files, deterministic calculations, and MongoDB.
-- **Slack:** teams ask ClaimTrace questions, request audits, and receive alerts and digests.
+- **Slack:** teams ask ClaimTrace questions, request audits, and receive alerts and digests. Messages carry only IDs, statuses, and file names; the details stay local.
 - **Local dashboard:** shows the full evidence matrix and handles file uploads.
 - **Delivery:** ClaimTrace is sold as a managed service. The vendor rents out the hardware and keeps the local models and agent workflows supported (§3).
 
@@ -41,7 +44,7 @@ The MVP deliberately avoids a RAG pipeline. For a bounded project folder, the ag
 | Required tools | At least **one** of NemoClaw, OpenClaw, or OpenShell. We use **NemoClaw + OpenShell**, with **Hermes Agent** as the agent. | Event intro slides, Sep 12. The organizer emails and public event page still say all three are required. **Confirm on Discord in writing.** |
 | Database | **MongoDB is required.** We run MongoDB Atlas Local on the GB10. | Intro slides. They didn't say whether a local instance counts or it must be Atlas cloud. Confirm on Discord. |
 | Inference | Local only: `nvidia/Qwen3.6-35B-A3B-NVFP4` on NemoClaw-managed vLLM. The product makes no cloud LLM calls. | Hackathon rule. |
-| Front-end | **Slack** for the team, plus a local dashboard. Slack is cloud messaging, not an LLM call (§16.6). | Team decision. |
+| Front-end | **Slack** for the team, with sanitized messages, plus a local dashboard. Slack is cloud messaging, not an LLM call (§16.6). Discord was considered and rejected (§16.2). | Team decision. Slack only vs Slack plus dashboard is still open. |
 | Pre-built agents | Hermes is the agent framework; the organizers pointed teams to it. The ClaimTrace skill, worker, checks, Slack flows, and schedules are written today. | Hackathon rule. |
 
 ### Current environment (verified 1:15–1:45 PM ET)
@@ -68,6 +71,7 @@ Current direction: ClaimTrace is the flagship workflow of a vendor that sells **
 - **Hardware on a rental basis:** GB10-class workstations placed with the customer, so manuscripts and data never leave the institution.
 - **Ongoing model support:** model updates, serving configuration, and tuning of the local agentic workflows as models and research needs change.
 - **Everything else needed to run a local research agent smoothly:** installation, sandbox and security policy, the Slack integration, agent skills such as ClaimTrace, and maintenance.
+- **A self-hosted chat option:** for customers who can't send anything through a cloud chat service, the rented box can also run a self-hosted Mattermost server, so even chat stays on-site. Hermes supports Mattermost, but NemoClaw doesn't manage it as a channel yet, so this is a roadmap item, not part of the hackathon build.
 
 Open questions for the team:
 
@@ -115,6 +119,7 @@ The MVP must:
 - Replacing peer review, statistical review, or research ethics review.
 - Searching the public internet or external paper databases.
 - Supporting hundreds of thousands of documents in the MVP.
+- Sending research files, excerpts, measured values, or reports through Slack.
 
 ## 7. Target Users and Core User Stories
 
@@ -273,6 +278,15 @@ The expected hackathon project is a bounded research workspace rather than a glo
 Direct inspection is especially appropriate for CSV files, notebooks, and configuration files, because these artifacts should be parsed or executed, not reduced to vector embeddings. vLLM on the box also serves a single model, so embeddings would require running a second one.
 
 Add QMD or MongoDB `$vectorSearch` only if direct exploration becomes incomplete or slow across a large text corpus. That remains a stretch goal because it adds model downloads, indexing time, and more failure modes.
+
+### Open decision: vector search for finding evidence
+
+Shrijani's parallel draft proposes a different first step: split documents into chunks, embed them with a local embedding model, and use MongoDB Vector Search to find candidate evidence before verifying against the original files.
+
+- **For it:** MongoDB gets a more visible role in the demo, and the approach scales better beyond a small project folder.
+- **Against it, today:** it needs an embedding model download (set `HF_HUB_DISABLE_XET=1`, since Hugging Face downloads stalled on venue Wi-Fi), chunking code, and a search index, and the embedding model needs compute next to vLLM.
+- **Already settled:** MongoDB Atlas Local on this box supports `$vectorSearch`, so the Python cosine-similarity fallback in that draft isn't needed.
+- **Either way,** verification stays deterministic against the original files.
 
 ## 12. Data Layout
 
@@ -445,7 +459,7 @@ How MongoDB is used:
 | Status for computable claims | Never | Compare reported and computed values; assign status |
 | Interpretive claims | Classify evidence as direct, circumstantial, or none, with reasons | Store with `model_judgment: true` and confidence capped at medium |
 | Incremental re-audit | Re-map evidence only when a stored check no longer runs | Compare hashes, find affected claims, re-run stored checks |
-| Slack questions | Look up status through the worker API, read cited evidence, reply briefly with paths | Serve current claim state from MongoDB |
+| Slack questions | Look up status through the worker API; reply with claim IDs, statuses, and file paths, pointing to the dashboard for text and values | Serve current claim state from MongoDB |
 | Slack audit requests | Send the request to the worker API and tell the user where results will appear | Record the request, run the audit, post the result with `hermes send` |
 | Alerts | None | Detect status changes, format the message, post with `hermes send` |
 | Explanations and digests | Write short explanations, recommended actions, and sweep digests | Validate, store, post digest summaries to Slack, render the report |
@@ -568,7 +582,7 @@ Modes. The worker names the mode in each API run's input; Slack messages use `an
   - Return evidence paths, locators, and a check spec, or `no_evidence` with a list of what was searched.
 - **`explain`:** given the worker's computed result, write a two-sentence explanation and a recommended action.
 - **`answer`:** a Slack question or request.
-  - For status and evidence questions, call the worker API (`GET http://host.openshell.internal:8700/api/...`), read the cited evidence, and reply in a few lines with project-relative paths.
+  - For status and evidence questions, call the worker API (`GET http://host.openshell.internal:8700/api/...`) and reply in a few lines with claim IDs, statuses, and project-relative paths. Point to the dashboard for claim text, values, and explanations.
   - For "audit" or "re-check" requests, `POST /api/audit-requests` and say the result will be posted in the channel.
   - If the API is unreachable, read `state/claims.json` from the mount and say the data may be a few minutes old.
 - **`sweep`:** the scheduled job (§17.3).
@@ -580,7 +594,7 @@ Rules the skill must state:
 - Never do arithmetic in prose; put the calculation in a check spec, or quote the worker's computed value.
 - Never modify source material. The read-only mount enforces this anyway.
 - For worker modes, return exactly one fenced JSON block matching the schema, with nothing after it.
-- In Slack, keep replies short, never paste more than a few lines of raw file content, and never claim a status the worker hasn't recorded.
+- In Slack, follow the sanitized default (§16.5): only project and claim IDs, statuses, counts, and file paths. Never include claim text, excerpts, measured values, or reports, even if someone typed them in the question. Never ask people to attach research files, and never claim a status the worker hasn't recorded.
 
 Install and verify:
 
@@ -595,14 +609,14 @@ In Phase 0, confirm that both a `/v1/runs` request and a Slack DM really load th
 
 ## 16. Slack Front-End
 
-The team works with ClaimTrace mainly in Slack. The local dashboard remains for the full evidence matrix, file upload, and the timeline.
+The team works with ClaimTrace mainly in Slack. Slack messages are sanitized by default: they carry IDs, statuses, counts, and file paths, while claim text, values, and explanations stay in the local dashboard (§16.5). The dashboard also handles file upload and the timeline.
 
 ### 16.1 What people do in Slack
 
 | In Slack | What happens | Path |
 |---|---|---|
 | "@ClaimTrace what's the status of demo-001?" in `#claimtrace` or a DM | Hermes looks up the claims and replies with statuses and file paths | Hermes Slack adapter, `answer` mode, worker API |
-| "@ClaimTrace why is claim-003 conflicting?" | Hermes reads the claim record and the cited evidence, then replies with reported vs computed values and paths | Same, plus the read-only mount |
+| "@ClaimTrace why is claim-003 conflicting?" | Hermes replies with the claim's status, which evidence file changed, and when; the values and explanation are in the dashboard | Same |
 | "@ClaimTrace re-audit demo-001" | Hermes files an audit request; the worker runs the audit and posts the result in the channel | Hermes calls `POST /api/audit-requests`; the worker change stream runs the audit; `hermes send` posts the result |
 | Nobody asks; a result file changes | A status-change alert appears in `#claimtrace` within seconds | Worker watcher, then `hermes send` |
 | Nobody asks; the sweep runs | A digest appears in `#claimtrace` | Hermes cron, the worker collector, then `hermes send` |
@@ -613,6 +627,11 @@ The team works with ClaimTrace mainly in Slack. The local dashboard remains for 
 - **Socket Mode needs no public URL.** The bot opens an outbound WebSocket to Slack, so the GB10 needs no inbound port or tunnel, which suits venue Wi-Fi and customer firewalls.
 - **Slack actions go through the worker.** Hermes can't touch MongoDB, so Slack-triggered audits go through the worker API, and the worker decides what to run.
 - **Allowlists limit who can ask.** Only allowlisted users in the allowlisted channel can talk to the bot, and the bot can read the research files.
+
+**Why Slack rather than Discord or another chat app:**
+- **Discord doesn't solve the cloud problem.** It's also a hosted service with no business data controls, it reads as a community app rather than a corporate tool, which weakens the business-value story, and its messages are capped at 2,000 characters.
+- **Slack is ready on this stack.** NemoClaw manages Slack for Hermes, and the sandbox already has its libraries. Teams and Google Chat are only experimental in NemoClaw.
+- **The real fix for "chat goes through the cloud" is self-hosted chat** such as Mattermost. Hermes supports it, but NemoClaw doesn't manage it yet, so it's in the business model (§3), not the hackathon build.
 
 ### 16.3 Setup
 
@@ -688,27 +707,30 @@ nemohermes my-hermes exec -- curl -s http://host.openshell.internal:8700/api/hea
 
 ### 16.5 Message design
 
-- **Alerts:** one message per status change, covering the project, claim ID, old and new status, the file that changed, and the reported and computed values. For example:
+**Default: sanitized.** Slack messages carry only project and claim IDs, statuses, counts, file paths, and times. Claim text, excerpts, measured values, explanations, and reports stay in the local dashboard and report. Nobody attaches research files in Slack, and the bot never sends reports as attachments.
+
+- **Alerts:** one message per status change: project, claim ID, old and new status, and the file that changed. For example:
 
   > ⚠️ *demo-001 · claim-003* changed from *Supported* to *Conflicting*
-  > `originals/results.csv` was updated. The manuscript says 12%; the data now shows 10.8%.
-  > Ask "@ClaimTrace why claim-003?" for details.
+  > Cause: `originals/results.csv` was updated at 2:02 PM.
+  > Values and explanation are in the ClaimTrace dashboard.
 
-- **Audit results:** counts by status first, then only the claims that need attention, with the dashboard for the full matrix.
-- **Digests:** 5–10 lines covering what changed since the last sweep, new candidate evidence, and possibly stale results.
-- **Answers:** a few lines with project-relative paths, and never more than a few lines of raw file content.
-- **Metadata-only mode:** a worker setting for strict customers. Alerts and digests then carry claim IDs, statuses, and paths, but no claim text or numbers.
+- **Audit results:** counts by status, then the IDs of claims that need attention.
+- **Digests:** 3–6 lines: claims checked, findings by claim ID, and the files involved (example in §17.3).
+- **Answers:** a few lines with claim IDs, statuses, and file paths, pointing to the dashboard for the rest.
+- **Detailed mode (opt-in):** a worker setting for customers who accept claim text and values in a private Slack channel. It stays off by default.
 
 ### 16.6 What Slack changes about "local-first"
 
 Slack is a cloud service. Model inference and the research files stay on the GB10, but every Slack message passes through Slack's servers: questions, answers, alerts, and digests.
 - **The rules:** this doesn't break the no-cloud-LLM rule.
-- **The pitch:** it narrows "nothing leaves the machine" to "**the research data and the model never leave the machine; only short messages go to Slack**". Be ready for this in Q&A.
+- **The pitch:** "**the research data and the model never leave the machine; Slack only sees IDs, statuses, and file names.**" Be ready for this in Q&A.
 
 Mitigations:
-- Use a private channel with allowlisted users and channel.
-- Follow the message rules above, with metadata-only mode for strict customers.
-- Offer the local dashboard alone for teams that can't use Slack.
+- Sanitized messages by default (§16.5).
+- A private channel with allowlisted users and channel.
+- The bot never repeats claim text or values back, even if someone types them into a question.
+- The local dashboard alone for teams that can't use Slack, and a self-hosted Mattermost option on the roadmap (§3).
 
 Prompt-injection note: text inside a manuscript or data file could try to instruct the agent. The agent can't start messages on its own, can't write to the project, and its network access is limited to Slack, local inference, and the worker API. Keep it that way.
 
@@ -739,11 +761,30 @@ New files don't match any existing claim's evidence. The scheduled sweep looks f
 
 ### 17.3 Scheduled sweep (Hermes cron)
 
-Hermes's gateway checks for due jobs every 60 seconds and runs each one in a fresh agent session. The sweep catches what the file watcher can't:
+**What it is.** The sweep is a scheduled check-up the agent runs by itself, for example every hour, with nobody asking and nothing being edited. "Cron" is the traditional name for a scheduler that runs tasks at set times, and Hermes has one built in. "Sweep" means it looks over the whole project, not just the file that changed.
 
-- **New evidence for open claims:** it searches again for `missing_evidence` and `unverifiable` claims, including files added since the last audit.
-- **Stale results:** it flags result files older than the code or configuration that produces them. This is the "was the figure regenerated after the evaluation code changed?" question.
-- **Digest:** a short summary of what changed since the last sweep and what needs attention.
+**Why the file watcher isn't enough.** The watcher only re-checks claims that cite a file that just changed. The sweep covers the gaps:
+
+- **New evidence nobody linked yet.** Say claim-005 is "missing evidence" and someone adds `robustness.csv`. No claim cites the new file, so the watcher re-checks nothing. The sweep searches again for `missing_evidence` and `unverifiable` claims, including files added since the last audit.
+- **Results that may be out of date.** Say someone edits `eval.py`, the code that produces `results.csv`, but doesn't re-run it. `results.csv` didn't change and no claim cites `eval.py`, so the watcher does nothing. The sweep compares file timestamps and flags result files older than the code or configuration that produces them. This is the "was the figure regenerated after the evaluation code changed?" question.
+- **A summary for people:** a short note on what changed since the last sweep and what still needs attention.
+- **The judging criterion.** The watcher reacts to a person's edit. The sweep runs on a clock, so Slack shows work the agent did while nobody was touching the project. That's the clearest evidence for "acts on its own over time."
+
+**How a run works.**
+1. We register the job once in Hermes's scheduler inside the sandbox.
+2. Hermes checks for due jobs every 60 seconds. When the sweep is due, it starts a fresh agent session, so no leftover chat history influences it. With `--continuity`, it also sees its previous report, so it only mentions new things.
+3. The agent reads the project folder (read-only) and the claim snapshot the worker saves in `state/claims.json`.
+4. It saves a short report plus a JSON list of findings as a file inside the sandbox.
+5. Every minute, the worker picks up new reports. It re-runs the real calculation for any flagged claim, never trusting numbers from the model, stores the results in MongoDB, and posts a sanitized summary to Slack.
+
+Example Slack post:
+
+```text
+ClaimTrace sweep · demo-001 · 3:00 PM
+• 6 claims checked · 2 findings
+• claim-005 (missing evidence): possible evidence in originals/robustness.csv — re-checking
+• claim-002: originals/results.csv is older than originals/eval.py — results may be stale
+```
 
 Job setup. The flags were checked against `hermes cron create --help` on the sandbox's Hermes 0.20.6.
 
@@ -783,7 +824,7 @@ nemohermes my-hermes exec -- hermes cron runs claimtrace-sweep   # execution his
 1. validates the JSON
 2. re-runs deterministic checks for any claim the sweep flags, never trusting numbers in the digest
 3. writes `digests` and `audit_events`
-4. posts the Markdown summary to Slack with `hermes send`
+4. posts a sanitized summary to Slack with `hermes send`
 5. queues `map_evidence` for claims with new candidate evidence
 
 **Fallback.** If cron in the sandbox misbehaves, the worker runs the same sweep on a host timer by submitting the sweep prompt to `/v1/runs`, using the same output contract and the same MongoDB and Slack writes. It's a weaker story, because the schedule then lives in the worker rather than the agent.
@@ -794,8 +835,8 @@ nemohermes my-hermes exec -- hermes cron runs claimtrace-sweep   # execution his
 
 1. Start with a claim marked **Supported**.
 2. Replace the associated CSV with an updated result containing a different metric.
-3. Without anyone typing a prompt, ClaimTrace detects the change and re-runs the stored check. A Slack alert appears within seconds saying the claim changed from **Supported** to **Conflicting**.
-4. Reply in Slack with "@ClaimTrace why claim-003?" to get the explanation with file citations.
+3. Without anyone typing a prompt, ClaimTrace detects the change and re-runs the stored check. A Slack alert appears within seconds saying the claim changed from **Supported** to **Conflicting** because `results.csv` changed.
+4. Open the dashboard to show the reported and computed values and the explanation, none of which went to Slack.
 5. Scroll up in `#claimtrace` to show the digests the sweep posted on its own earlier in the day.
 
 ## 18. Working With the Local Model: Guidelines and Warnings
@@ -827,7 +868,7 @@ Measured so far: one short chat request through the Hermes API took about 10 sec
 
 ### Reliability
 
-7. **Never trust the model's arithmetic.** The model proposes check specs, pandas computes, and code assigns status. The model never writes `computed_value` or `status` for computable claims, and Slack answers quote the worker's values.
+7. **Never trust the model's arithmetic.** The model proposes check specs, pandas computes, and code assigns status. The model never writes `computed_value` or `status` for computable claims, and never states a status the worker hasn't recorded.
 8. **Validate every response.** Parse the single JSON block with Pydantic. On failure, retry once with the validation error included. If it fails again, record the claim as `unverifiable` with reason `model_output_invalid`. Bad model output must never crash the worker.
 9. **Check every citation.** Reject evidence paths that aren't in `artifacts` and locators that don't resolve; small models invent plausible file names.
 10. **Watch percentages.** "Improved by 12%" can mean a relative change or percentage points. Make the check spec's `kind` explicit, and show both values in the dashboard when they differ.
@@ -851,7 +892,7 @@ Measured so far: one short chat request through the Hermes API took about 10 sec
 
 - **Local inference only.** Use only the local vLLM model through NemoClaw's inference route. Don't configure cloud inference providers, Tavily web search, extra messaging channels, or Nous Portal tool gateways in the sandbox.
 - **Talk only to the sandboxed Hermes.** Never to the host install in `~/.hermes`. Before demoing, confirm that port 8642 is the sandbox forward with `openshell forward list`.
-- **Slack is the one cloud path for content** (§16.6). Use a private channel, set `SLACK_ALLOWED_USERS` and `SLACK_ALLOWED_CHANNELS`, follow the message rules in §16.5, and offer metadata-only mode for strict customers.
+- **Slack is the one cloud path** (§16.6). Messages are sanitized by default: IDs, statuses, counts, and file paths only (§16.5). Use a private channel, and set `SLACK_ALLOWED_USERS` and `SLACK_ALLOWED_CHANNELS`.
 - **Credentials:**
   - Slack tokens live only in NemoClaw's OpenShell credential store, and the sandbox sees placeholders.
   - MongoDB credentials and the Hermes gateway token stay on the host; the worker fetches the gateway token at startup and never writes it to disk.
@@ -864,6 +905,7 @@ Measured so far: one short chat request through the Hermes API took about 10 sec
 - **Data:** project data reaches the sandbox only through the read-only mount, so the agent can't modify evidence. Hermes can't start Slack messages on its own; every unprompted post comes from the worker.
 - **Logging and deletion.** Log file IDs, hashes, actions, and status, not document contents. Include a local project deletion workflow that removes the project directory, its MongoDB documents, and its notification records.
 - **Show local status in the dashboard:** the active model, the inference endpoint type, sandbox status, Slack connection status, and the network policy.
+- **Record the configuration.** At startup, write the active model, inference route, and allowed network destinations to the local audit log, so the local-only setup can be shown, not just claimed.
 
 Local-first is a configuration that must be verified. Running inside NemoClaw doesn't guarantee it if a cloud inference provider or external tool gateway is enabled.
 
@@ -933,7 +975,7 @@ Remaining:
 - Worker API: claims, events, and audit requests.
 - Skill `answer` mode for status questions, "why" questions, and audit requests.
 - Audit results posted back to Slack.
-- Message formatting (§16.5) and metadata-only mode.
+- Sanitized message formatting (§16.5) and the opt-in detailed mode.
 - Dashboard: upload and audit controls that write `audit_requests`; run progress from `/v1/runs` status and events.
 - Dashboard: an evidence matrix with severity colors, the `audit_events` timeline, and the digest view.
 - Dashboard: a local-only status panel covering model, inference endpoint, sandbox, Slack, and policy.
@@ -1000,6 +1042,7 @@ Create a synthetic but realistic research package containing:
 | Slack alert after the CSV swap | Measured from `notifications`; target under 30 seconds |
 | Slack questions answered with correct status and paths | 100% in demo set |
 | Messages from non-allowlisted users answered | 0 |
+| Sensitive content sent to Slack (claim text, excerpts, values, files) | 0 |
 | Scheduled sweeps completed unattended | At least 1, stored in MongoDB and posted to Slack |
 | Seconds per `map_evidence` run and per Slack answer | Measured and recorded in §18 |
 
@@ -1013,9 +1056,9 @@ Create a synthetic but realistic research package containing:
 | Venue Wi-Fi drops Socket Mode during the demo | No Slack messages | Check 10 minutes before; dashboard as a live backup; backup video |
 | `hermes send` can't resolve Slack credentials through `nemohermes exec` | No alerts | Test in Phase 0; fall back to a short Hermes cron job with `--deliver slack:<channel>` |
 | Worker API unreachable from the sandbox | Slack questions and audit requests fail | Test with `curl` in Phase 0; check `ufw` and the bind address; fall back to `state/claims.json` and dashboard-triggered audits |
-| Slack messages expose research content | Weakens the local-first story | Private channel, allowlists, message rules, metadata-only mode (§16.6) |
+| Slack messages expose research content | Weakens the local-first story | Sanitized messages by default, private channel, allowlists (§16.5, §16.6) |
 | Model output is slow | Demo stalls | Measure early, one job per run, pre-run the full audit, deterministic status flip and alert (§18) |
-| Model invents evidence or numbers | Damages trust | Path validation, closed set of check specs, code-assigned status, answers quote worker values |
+| Model invents evidence or numbers | Damages trust | Path validation, closed set of check specs, code-assigned status, sanitized Slack answers |
 | Invalid or truncated JSON | Pipeline errors | Pydantic validation, one retry, then `unverifiable` |
 | Hermes cron misbehaves in the sandbox | Weaker scheduled-work story | Test in Phase 0; host-timer fallback with the same output contract |
 | Skill isn't loaded over the API or in Slack | Agent ignores ClaimTrace rules | Verify in Phase 0; fall back to passing instructions on the run |
@@ -1072,7 +1115,7 @@ Replace the result CSV. With no prompt, a Slack alert shows the claim changing f
 
 Close with:
 - time saved, reduced submission risk, and defensible provenance
-- the research data and the model never leaving the machine
+- the research data and the model never leaving the machine; Slack only sees IDs and statuses
 - the managed-service offer: hardware rental plus model support
 
 Final wording depends on §3.
@@ -1089,4 +1132,4 @@ Final wording depends on §3.
 8. Add the worker API and the skill's Slack `answer` mode.
 9. Measure model latency and record it in §18.
 10. Build the dashboard only after the vertical slice works.
-11. Decide the scope cuts (§20) and the business model details (§3).
+11. Decide the scope cuts (§20), the business model details (§3), and the two open choices from Shrijani's draft: Slack only or Slack plus dashboard, and direct file reading or vector search (§11).
