@@ -153,6 +153,27 @@ held=[b['kind'] for b in e['backlog'] if not b['eligible']]
 assert 'verify_new' in held, held
 " && pass "verify_new is rate-limit held on the next tick" || fail "rate limit did not hold verify_new"
 
+
+echo "== slack intake =="
+IP="$LABMATE_PROJECTS_ROOT"
+rm -rf "$IP/intake-test"
+mkdir -p "$IP/intake-test/originals" "$IP/intake-test/extracted"
+echo '{"project_id":"intake-test","documents":[]}' > "$IP/intake-test/manifest.json"
+printf 'region,rev\nnorth,10\n' > "$IP/sales.csv"
+
+python3 -m labmate.slack_intake --project intake-test --local-file "$IP/sales.csv" \
+  | python3 -c "import json,sys;assert json.load(sys.stdin)['ingested']=='originals/sales.csv'" \
+  && pass "local-file intake registers the document" || fail "intake did not register the file"
+
+python3 -m labmate --project intake-test project-status \
+  | python3 -c "import json,sys;assert any(d['path']=='originals/sales.csv' for d in json.load(sys.stdin)['documents'])" \
+  && pass "intaken file appears in the manifest" || fail "intaken file missing from manifest"
+
+printf '#!/bin/sh\n' > "$IP/evil.sh"
+EVIL=$(python3 -m labmate.slack_intake --project intake-test --local-file "$IP/evil.sh" || true)
+case "$EVIL" in *"not allowed"*) pass "disallowed file type is rejected";; *) fail "disallowed type was not rejected: $EVIL";; esac
+rm -rf "$IP/intake-test" "$IP/sales.csv" "$IP/evil.sh"
+
 echo "== notification is sanitized =="
 MSG=$($CT notify --reason "source file changed" | python3 -c 'import json,sys;print(json.load(sys.stdin)["message"])')
 echo "$MSG"
