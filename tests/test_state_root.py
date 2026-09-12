@@ -29,7 +29,15 @@ def readonly_project(tmp_path, monkeypatch):
     projects = tmp_path / "projects"
     # copy only the tracked inputs; ignore state a previous smoke run may have left behind
     shutil.copytree(FIXTURE, projects / "fixture-project",
-                    ignore=shutil.ignore_patterns("audit-state.json", "reports", "__pycache__"))
+                    ignore=shutil.ignore_patterns("audit-state.json", "reports", "meetings.json",
+                                                  "__pycache__"))
+    # A researcher-supplied meetings.json shipped inside the (read-only) project.
+    # It is written here rather than tracked in the fixture: smoke.sh treats
+    # tests/fixture-project/meetings.json as generated output and deletes it.
+    (projects / "fixture-project" / "meetings.json").write_text(json.dumps(
+        {"meetings": [{"id": "m-001", "title": "Weekly sync", "when": "2026-09-15T10:00",
+                       "attendees": ["Dr. Rao"], "topics": ["accuracy improvements"],
+                       "created_at": "2026-09-12T19:05:31Z"}]}, indent=2) + "\n")
     for p in (projects / "fixture-project").rglob("*"):
         p.chmod(p.stat().st_mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
     for d in [projects / "fixture-project", *[p for p in (projects / "fixture-project").rglob("*") if p.is_dir()]]:

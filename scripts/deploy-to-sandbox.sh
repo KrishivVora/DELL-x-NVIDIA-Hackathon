@@ -101,7 +101,11 @@ Next:
        $NC $SANDBOX exec -- hermes -z "What is in project <id>?" -s research-assistant --yolo
   3. Prep a meeting:
        $NC $SANDBOX exec -- hermes -z "Prep me for my next meeting on <id>" -s meeting-prep --yolo
-  4. Always-on watcher:
+  4. Always-on, two kinds of autonomy (run both):
+       # reactive: re-audits when a file changes
        $NC $SANDBOX exec -- env PYTHONPATH=$APP_DIR:$VENDOR LABMATE_PROJECTS_ROOT=$PROJECTS_DIR LABMATE_STATE_ROOT=$STATE_DIR \\
          python3 -m labmate.watcher --project <id> --interval 5
+       # scheduled: works a ranked backlog on a clock (briefs, re-checks, digest)
+       $NC $SANDBOX exec -- env PYTHONPATH=$APP_DIR:$VENDOR LABMATE_PROJECTS_ROOT=$PROJECTS_DIR LABMATE_STATE_ROOT=$STATE_DIR \\
+         python3 -m labmate.scheduler --project <id> --interval 60
 NOTE
