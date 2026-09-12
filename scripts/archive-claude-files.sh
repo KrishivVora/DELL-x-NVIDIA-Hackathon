@@ -73,8 +73,10 @@ find "$REPO" -path "$REPO/gb10-offline-bundle" -prune -o -path "$ARCHIVE" -prune
 # 4. Hermes sessions + sandbox state (best effort; needs the sandbox up)
 if command -v nemohermes >/dev/null 2>&1 && nemohermes "$SANDBOX" status >/dev/null 2>&1; then
   say "Exporting Hermes sessions and Labmate state from sandbox $SANDBOX"
-  nemohermes "$SANDBOX" exec --timeout 300 -- sh -c \
-    'rm -rf /sandbox/workspace/_archive && mkdir -p /sandbox/workspace/_archive/hermes-sessions && hermes sessions export --format md --yes /sandbox/workspace/_archive/hermes-sessions >/dev/null 2>&1; cp -a /sandbox/.hermes/workspace/labmate-state /sandbox/workspace/_archive/sandbox-state 2>/dev/null; ls /sandbox/workspace/_archive' \
+  # `hermes sessions export` refuses a bulk export without a filter and, with one,
+  # exported 2 of 19 sessions here; exporting each id from `sessions list` gets them all.
+  nemohermes "$SANDBOX" exec --timeout 600 -- sh -c \
+    'rm -rf /sandbox/workspace/_archive && mkdir -p /sandbox/workspace/_archive/hermes-sessions; for id in $(hermes sessions list --limit 1000 2>/dev/null | grep -oE "(^|[[:space:]])([0-9]{8}_[0-9]{6}_[0-9a-f]+|api-[0-9a-f]+)$" | tr -d " "); do hermes sessions export --session-id "$id" --format md --yes /sandbox/workspace/_archive/hermes-sessions >/dev/null 2>&1; done; cp -a /sandbox/.hermes/workspace/labmate-state /sandbox/workspace/_archive/sandbox-state 2>/dev/null; echo "sessions exported: $(ls /sandbox/workspace/_archive/hermes-sessions | grep -c "\.md$")"' \
     2>/dev/null | grep -v 'Active gateway' || true
   nemohermes "$SANDBOX" download /sandbox/workspace/_archive "$ARCHIVE/" >/dev/null 2>&1 \
     && { mv "$ARCHIVE/_archive/"* "$ARCHIVE/" 2>/dev/null; rmdir "$ARCHIVE/_archive" 2>/dev/null; echo "  hermes-sessions + sandbox-state downloaded"; } \
@@ -204,7 +206,11 @@ if [ -n "${ARCHIVE_REMOTE:-}" ]; then
   fi
   git checkout -q -B claude-archive
 fi
-git add scripts/archive-claude-files.sh "$ARCHIVE"
+# -f: the repo ignores any "projects/" directory, which would silently drop
+# home-dot-claude/projects (every transcript and memory note).
+git add scripts/archive-claude-files.sh
+git add -f "$ARCHIVE"
+echo "  staged $(git diff --cached --name-only | grep -c '^claude-archive/') files from claude-archive/ ($(git diff --cached --name-only | grep -c 'home-dot-claude/projects/') under home-dot-claude/projects)"
 git commit -q -m "chore: archive Claude Code files, Hermes sessions and demo state from the GB10
 
 Secrets redacted; see claude-archive/README.md.
@@ -214,7 +220,7 @@ echo "  $(git log -1 --format='%h %s')  ($(du -sh "$ARCHIVE" | cut -f1))"
 
 if [ -n "${ARCHIVE_REMOTE:-}" ]; then
   say "Pushing to the private repo $ARCHIVE_REMOTE (as its main branch)"
-  git push "$ARCHIVE_REMOTE" claude-archive:main
+  git push --force "$ARCHIVE_REMOTE" claude-archive:main   # the private repo is a snapshot; each run replaces it
   git checkout -q "$start_branch"
   echo "  local branch 'claude-archive' holds the archive; '$start_branch' is untouched and claude-archive/ is gone from the working tree."
   echo "  Add your teammates as collaborators on the private repo so they keep access."
