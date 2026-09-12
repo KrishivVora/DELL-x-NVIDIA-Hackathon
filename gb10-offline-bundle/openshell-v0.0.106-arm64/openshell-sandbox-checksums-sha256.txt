@@ -1,0 +1,2 @@
+559b8aaad3a8eeab45c511e7de531d9baa98a311282dcb0c2c5f38cc2d4ca355  openshell-sandbox-x86_64-unknown-linux-gnu.tar.gz
+5e5d758d53c6abc6d7a936be907dafa9dfce10423289536f39b50abe294dfafd  openshell-sandbox-aarch64-unknown-linux-gnu.tar.gz

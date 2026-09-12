@@ -1,0 +1,3 @@
+[submodule "gb10-offline-bundle/NemoClaw"]
+	path = gb10-offline-bundle/NemoClaw
+	url = https://github.com/NVIDIA/NemoClaw.git

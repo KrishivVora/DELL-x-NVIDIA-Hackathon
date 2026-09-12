@@ -1,0 +1,2 @@
+# Shell scripts must keep LF endings so they run in WSL / on the GB10
+*.sh text eol=lf
