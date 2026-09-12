@@ -41,6 +41,18 @@ channel exists, `verify-slack.sh` passes every check, and the sandbox has
    Run it after the skill is installed, or drop `--skill` and re-run later.
    Research and evidence: `docs/hermes-slack-config.md`.
 
+   One of the keys it writes is global rather than Slack-only:
+   `tools.tool_search.enabled: false`. NemoClaw builds sandboxes with
+   *progressive tool disclosure*, so each session sees only part of the tool
+   catalog; when `terminal` is not visible the model wraps CLI calls in
+   `execute_code` ("from hermes_tools import terminal"), which raises a script
+   approval on every step and makes it look like the agent is writing Python to
+   read files. Session exports showed 13 `terminal` calls in one session and 5
+   `execute_code` calls with zero `tool_search` calls in the next. With the key
+   off, a verified API turn used `terminal` directly. The durable equivalent,
+   which survives a sandbox recreate, is
+   `nemohermes my-hermes rebuild --tool-disclosure direct`.
+
 ## Sending from the box: `worker/slack_notify.py`
 
 Hermes 0.20.6 gives the agent no `send_message` tool, so unprompted posts

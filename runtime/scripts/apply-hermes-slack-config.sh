@@ -294,6 +294,13 @@ add_setting display.platforms.slack.tool_progress '"off"' \
   "overrides NemoClaw's global tool_progress=all, which posts tool calls with argument previews (plan 16.5)"
 add_setting display.platforms.slack.interim_assistant_messages 'false' \
   "no mid-turn commentary that could quote file contents; one final reply (plan 16.5)"
+# Global, not Slack-only: NemoClaw builds sandboxes with progressive tool
+# disclosure, so only part of the catalog is visible per session and the model
+# reaches the CLI through execute_code wrappers (one scary approval each).
+# With it off, sessions see the terminal tool directly. The durable equivalent
+# is `nemohermes <sandbox> rebuild --tool-disclosure direct`.
+add_setting tools.tool_search.enabled 'false' \
+  "show the whole tool catalog, so the agent runs labmate with the terminal tool instead of execute_code"
 
 # ---------------------------------------------------------------------------
 # Plan
