@@ -1,0 +1,17 @@
+<<<PAGE 4>>>
+Methods
+
+We evaluate our approach on five datasets spanning natural images, digits and
+apparel classification. All models share the same training schedule.
+
+<<<PAGE 7>>>
+Results
+
+Our method improves accuracy by 12% over the baseline across all evaluated
+datasets. Gains are consistent and largest on SVHN.
+
+<<<PAGE 9>>>
+Discussion
+
+The approach is also more robust to input noise, which we attribute to the
+regularizing effect of the proposed objective.

@@ -1,0 +1,28 @@
+{
+  "project_id": "fixture-project",
+  "generated_at": "2026-09-12T18:00:00Z",
+  "documents": [
+    {
+      "path": "originals/manuscript.pdf",
+      "role": "manuscript",
+      "artifact_type": "manuscript",
+      "mime_type": "application/pdf",
+      "sha256": "fixture",
+      "modified_at": "2026-09-12T17:59:00Z",
+      "extraction_status": "ok",
+      "extracted_path": "extracted/manuscript.txt",
+      "pages": 12
+    },
+    {
+      "path": "originals/results.csv",
+      "role": "evidence",
+      "artifact_type": "experimental_data",
+      "mime_type": "text/csv",
+      "sha256": "fixture",
+      "modified_at": "2026-09-12T17:59:00Z",
+      "extraction_status": "not_required",
+      "extracted_path": null,
+      "pages": null
+    }
+  ]
+}
