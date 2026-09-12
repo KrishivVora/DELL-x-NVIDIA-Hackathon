@@ -24,6 +24,14 @@ projects/<project_id>/
 └── reports/          # answers, briefings and audit reports; agent only
 ```
 
+Inside the sandbox the project tree is a **read-only** NemoClaw host mount
+(`/sandbox/projects`), so the agent cannot write there. `LABMATE_STATE_ROOT`
+(default `/sandbox/workspace/state` via `bin/labmate`) redirects the agent's
+files — `audit-state.json`, `meetings.json`, `reports/` — to
+`<state_root>/<project_id>/`. Unset, they stay in the project directory (the
+host-side default, used by tests). A `meetings.json` shipped inside the project
+seeds the agent's register.
+
 ## 2. `manifest.json` — ingestion writes, agent reads
 
 ```json
@@ -70,7 +78,7 @@ Rules:
 
 ## 3. Retrieval — ingestion implements, agent calls
 
-Python entry point, imported by `claimtrace/retrieval.py`:
+Python entry point, imported by `labmate/retrieval.py`:
 
 ```python
 # module: labmate_rag  (claimtrace_rag is also accepted)

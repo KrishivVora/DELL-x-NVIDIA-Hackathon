@@ -18,17 +18,17 @@ audit is what was requested.
 
 1. **Never calculate.** You do not compute percentages, means, differences, or
    counts yourself, not even simple ones. Every number in your output comes from
-   a `claimtrace verify` call. If you cannot get a number from a tool, the claim
+   a `labmate verify` call. If you cannot get a number from a tool, the claim
    is `unverifiable`.
 2. **Never invent a file path.** Only cite paths that appear in
-   `claimtrace project-status`. If a path is not there, it does not exist.
-3. **Retrieval is not evidence.** `claimtrace retrieve` nominates candidates.
+   `labmate project-status`. If a path is not there, it does not exist.
+3. **Retrieval is not evidence.** `labmate retrieve` nominates candidates.
    You confirm by opening the file and running a verification.
 4. **Never modify originals.** You read `originals/`. You write only claim
    records and reports, through the tools.
 5. **Never put research content in a notification.** Claim text, excerpts,
    values, and file contents stay local. Send only the output of
-   `claimtrace notify`.
+   `labmate notify`.
 6. **Say you do not know.** "No supporting artifact found" is a correct and
    valuable answer. Inventing support is the one unrecoverable failure.
 

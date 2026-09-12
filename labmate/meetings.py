@@ -1,6 +1,6 @@
 """Local meeting register and briefing assembly.
 
-Meetings live in meetings.json at the project root, edited by the researcher or
+Meetings live in meetings.json (under LABMATE_STATE_ROOT when set, else the project root), edited by the researcher or
 by the agent. There is no calendar integration on purpose: a cloud calendar
 would put meeting titles and attendee names outside the box, which is exactly
 what this product promises not to do.
@@ -15,14 +15,17 @@ from .store import Project, ProjectError, now
 
 
 def _load(project: Project) -> dict:
-    path = project.root / "meetings.json"
-    if not path.exists():
-        return {"meetings": []}
-    return json.loads(path.read_text())
+    # The agent's own register wins; a researcher-supplied meetings.json shipped
+    # with the (possibly read-only) project is the starting point.
+    for path in (project.meetings_path, project.root / "meetings.json"):
+        if path.exists():
+            return json.loads(path.read_text())
+    return {"meetings": []}
 
 
 def _save(project: Project, data: dict) -> None:
-    (project.root / "meetings.json").write_text(json.dumps(data, indent=2) + "\n")
+    project.state_dir.mkdir(parents=True, exist_ok=True)
+    project.meetings_path.write_text(json.dumps(data, indent=2) + "\n")
 
 
 def _parse(when: str | None) -> datetime | None:
