@@ -36,6 +36,7 @@ All commands take `--project <id>` and print JSON.
 | `labmate --project P read --path X [--page N]` | Read more around a passage. |
 | `labmate --project P digest [--days 7]` | What changed, what is open, what is coming up. |
 | `labmate --project P notify --reason R` | Sanitized line, the only thing sent to Slack. |
+| `python3 -m labmate.slack_intake --project P --url <url_private_download> --name <file>` | Someone shared a file: pull it into the project. |
 
 Related skills: `claimtrace` for checking a number or a claim against data,
 `meeting-prep` for assembling a briefing.
@@ -62,6 +63,22 @@ Triggered by "what's new", "what should I look at", "catch me up".
    - open items (conflicting or unsupported claims from earlier analysis)
    - meetings in the next few days and whether they have a brief
 3. Recommend one next action. One, not a list.
+
+## Workflow — someone shares a file in Slack
+
+A Slack upload is not a local file yet, and you cannot read it from Slack.
+
+1. Take the file's `url_private_download` and its name from the share event.
+2. Run `python3 -m labmate.slack_intake --project P --url <url> --name <file>`.
+   It downloads the file, stores it in the project, and indexes it. On this box
+   the project folder is read-only, so the command hands the bytes to the host
+   service; that is expected, and `indexed_by` in the result says which side
+   did the work.
+3. Say what arrived and where it landed (`ingested` path), never its contents.
+4. If the upload looks like evidence for a claim, hand off to `claimtrace`.
+
+Refusals are normal and final: unsupported file types and oversized files are
+rejected by design. Report the error as-is; do not retry with a renamed file.
 
 ## Workflow C — a file changed and nobody asked anything
 

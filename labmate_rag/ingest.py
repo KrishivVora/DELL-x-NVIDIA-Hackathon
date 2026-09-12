@@ -188,6 +188,42 @@ def ingest_project(project_id: str, *, root: Path | None = None, manuscript: str
     return summary
 
 
+def accept_upload(project_id: str, filename: str, data: bytes, *, role: str = "evidence",
+                  root: Path | None = None) -> dict:
+    """Write one delivered file into a project's originals/ and ingest the project.
+
+    The sandbox cannot write to the read-only host mount, so a file shared in
+    Slack arrives here as bytes. Validation is repeated on this side because
+    the caller is not trusted.
+    """
+    raw = (filename or "").strip()
+    name = os.path.basename(raw)
+    # Reject rather than silently sanitize: a separator or .. in an upload name
+    # is worth surfacing, not quietly rewriting.
+    if not name or name.startswith(".") or raw != name or ".." in raw:
+        raise IngestError(f"unsafe filename: {filename!r}")
+    suffix = Path(name).suffix.lower()
+    if suffix not in config.ALLOWED_UPLOAD_SUFFIXES:
+        raise IngestError(f"file type '{suffix or '(none)'}' is not allowed")
+    if len(data) > config.MAX_UPLOAD_BYTES:
+        raise IngestError(f"file exceeds the {config.MAX_UPLOAD_BYTES} byte limit")
+
+    root = Path(root) if root else config.projects_root() / project_id
+    originals = root / "originals"
+    originals.mkdir(parents=True, exist_ok=True)   # a new project may arrive this way
+
+    target = originals / name
+    tmp = target.with_name(f".{name}.part")        # never leave a half file for the watcher
+    tmp.write_bytes(data)
+    tmp.replace(target)
+
+    manuscript = name if role == "manuscript" else None
+    summary = ingest_project(project_id, root=root, manuscript=manuscript)
+    summary["accepted"] = f"originals/{name}"
+    summary["bytes"] = len(data)
+    return summary
+
+
 def _assign_manuscript(documents: list[dict], manuscript: str | None) -> None:
     """Exactly one document is the manuscript: an explicit choice, else a prior
     role from manifest.json, else the PDF with the most pages."""

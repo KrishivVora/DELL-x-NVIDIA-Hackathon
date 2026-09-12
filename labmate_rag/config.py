@@ -6,6 +6,12 @@ import os
 from pathlib import Path
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# What a researcher legitimately shares. Mirrors labmate.slack_intake; the host
+# re-checks because the sandbox is not a trusted caller.
+ALLOWED_UPLOAD_SUFFIXES = {
+    ".pdf", ".csv", ".tsv", ".txt", ".md", ".json", ".yaml", ".yml", ".py", ".ipynb", ".tex",
+}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 DEFAULT_MONGODB_ENV = Path("~/.config/hackathon/mongodb.env").expanduser()
 DEFAULT_API_PORT = 8700
 SANDBOX_DOCKER_NETWORK = "openshell-docker"  # its gateway is host.openshell.internal in the sandbox

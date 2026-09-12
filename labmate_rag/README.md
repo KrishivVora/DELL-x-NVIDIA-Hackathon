@@ -45,11 +45,21 @@ python3 -m labmate_rag ingest demo-001                 # ~4 s; unchanged files a
 python3 -m labmate_rag retrieve demo-001 "how much did accuracy improve" -k 3
 python3 -m labmate_rag watch demo-001 --interval 5     # re-ingest when originals/ changes
 python3 -m labmate_rag serve --bind auto               # API for the sandbox (keep running)
+                                                      # serves retrieve, ingest and intake
 ```
 
 Environment: `LABMATE_PROJECTS_ROOT` (default `projects`), `LABMATE_DB_NAME`
 (default `claimtrace`; tests use `claimtrace_test`), `LABMATE_RAG_URL`
 (forces the HTTP client; default in the sandbox is `http://host.openshell.internal:8700`).
+
+## Slack uploads
+
+A file shared in Slack is not a local file. `labmate.slack_intake` (agent lane)
+downloads it inside the sandbox and, because the project mount is read-only
+there, POSTs the bytes to `POST /api/intake` here. This side re-checks the name,
+extension and size — the sandbox is not a trusted caller — writes the file into
+`originals/` through a temporary name so the watcher never sees a half file,
+then runs the normal ingest. A project that does not exist yet is created.
 
 ## Tests
 
