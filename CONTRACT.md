@@ -70,7 +70,7 @@ Rules:
 
 ## 3. Retrieval — ingestion implements, agent calls
 
-Python entry point, imported by `claimtrace/retrieval.py`:
+Python entry point, imported by `labmate/retrieval.py`:
 
 ```python
 # module: labmate_rag  (claimtrace_rag is also accepted)

@@ -97,6 +97,22 @@ def test_csv_is_not_extracted(tmp_path):
 # -- ingestion -----------------------------------------------------------------
 
 
+def test_ingest_no_index_needs_no_mongodb(tmp_path, monkeypatch):
+    """Replaces scripts/make-project.py: manifest + extracted/ without MongoDB or the model."""
+    monkeypatch.setenv("LABMATE_PROJECTS_ROOT", str(tmp_path))
+    monkeypatch.setenv("MONGODB_URI", "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=1")  # must not be used
+    root = tmp_path / "offline"
+    (root / "originals").mkdir(parents=True)
+    make_pdf(root / "originals" / "paper.pdf", PAGES)
+    (root / "originals" / "results.csv").write_text("a,b\n1,2\n")
+
+    summary = ingest_project("offline", index=False)
+    assert summary["indexed"] is False and summary["manuscript"] == "originals/paper.pdf"
+    manifest = json.loads((root / "manifest.json").read_text())
+    pdf = next(d for d in manifest["documents"] if d["path"] == "originals/paper.pdf")
+    assert pdf["extraction_status"] == "ok" and (root / pdf["extracted_path"]).read_text().startswith("<<<PAGE 1>>>")
+
+
 @needs_mongo
 def test_ingest_writes_contract_manifest_and_extracted(project):
     summary = ingest_project("proj-1")

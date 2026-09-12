@@ -87,17 +87,25 @@ def _existing_roles(root: Path) -> dict[str, str]:
 
 
 def ingest_project(project_id: str, *, root: Path | None = None, manuscript: str | None = None,
-                   force: bool = False, wait_indexed: bool = True) -> dict:
-    """Ingest every file under originals/ and write manifest.json. Returns a summary."""
+                   force: bool = False, wait_indexed: bool = True, index: bool = True) -> dict:
+    """Ingest every file under originals/ and write manifest.json. Returns a summary.
+
+    index=False writes only extracted/ and manifest.json (no MongoDB, no model),
+    which is all the agent layer's keyword fallback needs. It replaces the old
+    scripts/make-project.py stopgap.
+    """
     root = Path(root) if root else config.projects_root() / project_id
     if not root.is_dir():
         raise IngestError(f"project '{project_id}' not found at {root}")
     (root / "extracted").mkdir(exist_ok=True)
 
-    database = db.get_db()
-    db.ensure_indexes(database, embeddings.dimension())
+    database = None
+    previous: dict[str, dict] = {}
+    if index:
+        database = db.get_db()
+        db.ensure_indexes(database, embeddings.dimension())
+        previous = {d["path"]: d for d in db.project_documents(database, project_id)}
     prior_roles = _existing_roles(root)
-    previous = {d["path"]: d for d in db.project_documents(database, project_id)}
 
     documents: list[dict] = []
     summary = {"project_id": project_id, "ingested": [], "skipped": [], "removed": [], "warnings": {}}
@@ -150,15 +158,16 @@ def ingest_project(project_id: str, *, root: Path | None = None, manuscript: str
             else:
                 warnings.append("no extractable text in the file")
 
-        if chunks:
-            vectors = embeddings.embed_texts([c["text"] for c in chunks])
-            for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
-                chunk.update({"path": rel, "section": None, "embedding": vector, "sha256": sha, "chunk_index": i})
-        db.replace_chunks(database, project_id, document_id, chunks)
-        db.upsert_document(database, project_id, {**record, "document_id": document_id,
-                                                  "warnings": warnings, "ingested_at": _now()})
-        if chunks and wait_indexed and not db.wait_for_indexed(database, project_id, document_id, len(chunks)):
-            warnings.append("search index still catching up; retrieval may lag for a few seconds")
+        if index:
+            if chunks:
+                vectors = embeddings.embed_texts([c["text"] for c in chunks])
+                for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
+                    chunk.update({"path": rel, "section": None, "embedding": vector, "sha256": sha, "chunk_index": i})
+            db.replace_chunks(database, project_id, document_id, chunks)
+            db.upsert_document(database, project_id, {**record, "document_id": document_id,
+                                                      "warnings": warnings, "ingested_at": _now()})
+            if chunks and wait_indexed and not db.wait_for_indexed(database, project_id, document_id, len(chunks)):
+                warnings.append("search index still catching up; retrieval may lag for a few seconds")
 
         documents.append(record)
         summary["ingested"].append({"path": rel, "chunks": len(chunks), "status": status})
@@ -169,6 +178,7 @@ def ingest_project(project_id: str, *, root: Path | None = None, manuscript: str
     for rel, prev in previous.items():
         db.remove_document(database, project_id, rel, prev.get("document_id", rel))
         summary["removed"].append(rel)
+    summary["indexed"] = index
 
     _assign_manuscript(documents, manuscript)
     manifest = {"project_id": project_id, "generated_at": _now(), "documents": documents}

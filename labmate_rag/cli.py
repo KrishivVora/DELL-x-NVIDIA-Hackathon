@@ -1,7 +1,7 @@
 """labmate_rag command line.
 
     python3 -m labmate_rag check
-    python3 -m labmate_rag ingest <project_id> [--manuscript NAME] [--force]
+    python3 -m labmate_rag ingest <project_id> [--manuscript NAME] [--force] [--no-index]
     python3 -m labmate_rag retrieve <project_id> "<query>" [-k 5]
     python3 -m labmate_rag watch <project_id> [--interval 5]
     python3 -m labmate_rag serve [--bind auto|127.0.0.1] [--port 8700]
@@ -34,7 +34,8 @@ def cmd_check(_a) -> dict:
 def cmd_ingest(a) -> dict:
     from .ingest import ingest_project
     started = time.monotonic()
-    summary = ingest_project(a.project_id, manuscript=a.manuscript, force=a.force, wait_indexed=not a.no_wait)
+    summary = ingest_project(a.project_id, manuscript=a.manuscript, force=a.force,
+                             wait_indexed=not a.no_wait, index=not a.no_index)
     summary["elapsed_s"] = round(time.monotonic() - started, 1)
     return summary
 
@@ -80,6 +81,8 @@ def main(argv=None) -> int:
     i.add_argument("--manuscript", help="file under originals/ to mark as the manuscript")
     i.add_argument("--force", action="store_true", help="re-process unchanged files too")
     i.add_argument("--no-wait", action="store_true", help="do not wait for the search index to catch up")
+    i.add_argument("--no-index", action="store_true",
+                   help="write extracted/ and manifest.json only; no MongoDB or model (keyword-fallback mode)")
 
     r = sub.add_parser("retrieve", help="find evidence candidates (not verification)")
     r.add_argument("project_id")
