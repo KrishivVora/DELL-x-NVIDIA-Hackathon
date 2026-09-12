@@ -12,6 +12,8 @@
 #   - /usr/local/bin and /opt/hermes/.venv are read-only in the sandbox; the
 #     wrapper goes to /sandbox/.local/bin (added to PATH in /sandbox/.bashrc)
 #     and pip packages to $APP_DIR/vendor (on PYTHONPATH via the wrapper).
+#   - agent state lives in the Hermes state volume (/sandbox/.hermes/...), not
+#     the container layer, so rebuilds keep claims and reports.
 #   - retrieval runs on the host (labmate_rag serve --bind auto); the sandbox
 #     reaches it at http://host.openshell.internal:8700 through the
 #     labmate-rag-host policy preset.
@@ -19,7 +21,8 @@ set -euo pipefail
 
 SANDBOX="${1:-my-hermes}"
 APP_DIR="/sandbox/workspace/labmate-app"
-STATE_DIR="/sandbox/workspace/state"          # agent-written files (LABMATE_STATE_ROOT)
+STATE_DIR="/sandbox/.hermes/workspace/labmate-state"   # agent-written files (LABMATE_STATE_ROOT);
+                                                      # in the Hermes state volume, so a rebuild keeps them
 BIN_DIR="/sandbox/.local/bin"
 SKILLS="research-assistant meeting-prep claimtrace"
 NC="${NEMOCLAW_CLI:-nemoclaw}"

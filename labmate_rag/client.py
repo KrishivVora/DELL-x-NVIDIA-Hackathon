@@ -36,6 +36,19 @@ def ingest(project_id: str, *, base_url: str, force: bool = False, timeout: floa
     return _post(base_url, "/api/ingest", {"project_id": project_id, "force": force}, timeout)
 
 
+def intake(project_id: str, filename: str, data: bytes, *, base_url: str,
+           role: str = "evidence", timeout: float = 600.0) -> dict:
+    """Hand one file's bytes to the host, which owns the writable project tree."""
+    import base64
+
+    return _post(base_url, "/api/intake", {
+        "project_id": project_id,
+        "filename": filename,
+        "content_b64": base64.b64encode(data).decode(),
+        "role": role,
+    }, timeout)
+
+
 def health(*, base_url: str, timeout: float = 5.0) -> dict:
     with urllib.request.urlopen(base_url.rstrip("/") + "/api/health", timeout=timeout) as resp:  # noqa: S310
         return json.loads(resp.read().decode())

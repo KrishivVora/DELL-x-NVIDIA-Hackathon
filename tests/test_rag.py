@@ -205,6 +205,41 @@ def test_retrieve_is_scoped_to_project(project):
     assert retrieve("proj-1", "   ", k=3) == []
 
 
+# -- intake (a Slack upload landing on the host) --------------------------------
+
+
+@needs_mongo
+def test_accept_upload_lands_and_indexes_a_file(project, mongo):
+    from labmate_rag.ingest import IngestError, accept_upload
+
+    ingest_project("proj-1")
+    summary = accept_upload("proj-1", "ablation.csv", b"dataset,score\nsvhn,0.91\n")
+    assert summary["accepted"] == "originals/ablation.csv"
+    assert (project / "originals" / "ablation.csv").is_file()
+    assert not list((project / "originals").glob(".*.part"))
+    manifest = json.loads((project / "manifest.json").read_text())
+    assert any(d["path"] == "originals/ablation.csv" for d in manifest["documents"])
+
+    notes = accept_upload("proj-1", "notes.md", b"# Noise sweep\nWe ran a noise sweep at levels 0.1 and 0.2.\n")
+    assert notes["accepted"] == "originals/notes.md"
+    assert retrieve("proj-1", "noise sweep levels", k=3)[0]["path"] == "originals/notes.md"
+
+    with pytest.raises(IngestError, match="not allowed"):
+        accept_upload("proj-1", "evil.sh", b"#!/bin/sh\nrm -rf /\n")
+    with pytest.raises(IngestError, match="unsafe filename"):
+        accept_upload("proj-1", "../escape.csv", b"a,b\n")
+
+
+@needs_mongo
+def test_accept_upload_creates_a_new_project(tmp_path, monkeypatch, mongo):
+    from labmate_rag.ingest import accept_upload
+
+    monkeypatch.setenv("LABMATE_PROJECTS_ROOT", str(tmp_path))
+    summary = accept_upload("from-slack", "readme.md", b"# Shared in Slack\nA new project starts here.\n")
+    assert summary["accepted"] == "originals/readme.md"
+    assert (tmp_path / "from-slack" / "manifest.json").is_file()
+
+
 # -- host API + sandbox client --------------------------------------------------
 
 
@@ -229,6 +264,14 @@ def test_api_and_client_round_trip(project, monkeypatch):
 
         summary = client.ingest("proj-1", base_url=base)
         assert len(summary["skipped"]) == 3
+
+        # the sandbox path: bytes in, indexed document out
+        up = client.intake("proj-1", "slack-upload.md", b"# From Slack\nThe ablation used five seeds.\n",
+                           base_url=base)
+        assert up["accepted"] == "originals/slack-upload.md"
+        assert retrieve("proj-1", "how many seeds did the ablation use", k=3)[0]["path"] == "originals/slack-upload.md"
+        with pytest.raises(client.RagApiError, match="not allowed"):
+            client.intake("proj-1", "evil.sh", b"x", base_url=base)
 
         with pytest.raises(client.RagApiError):
             client.retrieve("proj-1", "x", base_url="http://127.0.0.1:1")

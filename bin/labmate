@@ -11,5 +11,9 @@ if [ -z "${LABMATE_PROJECTS_ROOT:-}" ]; then
   if [ -d /sandbox/projects ]; then LABMATE_PROJECTS_ROOT=/sandbox/projects; else LABMATE_PROJECTS_ROOT=/sandbox/workspace/projects; fi
 fi
 export LABMATE_PROJECTS_ROOT
-export LABMATE_STATE_ROOT="${LABMATE_STATE_ROOT:-/sandbox/workspace/state}"
+# Agent-written state (claims, reports, meetings) goes in the Hermes state
+# volume, not /sandbox/workspace: that is the container's writable layer and is
+# lost on rebuild. .hermes/workspace is manifest-declared, so NemoClaw carries
+# it across rebuilds and snapshots.
+export LABMATE_STATE_ROOT="${LABMATE_STATE_ROOT:-/sandbox/.hermes/workspace/labmate-state}"
 exec python3 -m labmate "$@"

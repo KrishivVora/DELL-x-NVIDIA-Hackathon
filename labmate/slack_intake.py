@@ -20,7 +20,8 @@ Or from the command line (token comes from the environment, never argv):
 
 Security: the token is read from the environment only. Downloaded files are
 treated as untrusted data — saved, never executed. Enforce an extension
-allowlist and a size cap so a hostile or accidental upload cannot fill the disk.
+allowlist and a size cap so a hostile or accidental upload cannot fill the disk;
+the host service re-checks both, because the sandbox is not a trusted caller.
 """
 
 from __future__ import annotations
@@ -36,6 +37,11 @@ from pathlib import Path
 
 from . import ingest
 from .store import Project, ProjectError
+
+# Where the writable project tree lives. Inside the sandbox the mount is
+# read-only, so the file's bytes go to the host RAG service, which owns the
+# tree and also embeds and indexes what it writes.
+DEFAULT_RAG_URL = "http://host.openshell.internal:8700"
 
 # What a researcher legitimately shares. Keep it tight; expand deliberately.
 ALLOWED_SUFFIXES = {
@@ -98,6 +104,55 @@ def _download(url: str, token: str | None, limit: int) -> bytes:
     return data
 
 
+def _rag_url() -> str:
+    return os.environ.get("LABMATE_RAG_URL") or DEFAULT_RAG_URL
+
+
+def _originals_writable(project: Project) -> bool:
+    probe = project.originals if project.originals.is_dir() else project.root
+    return os.access(probe, os.W_OK)
+
+
+def _deliver(project: Project, name: str, data: bytes | None, src: Path | None, role: str) -> dict:
+    """Land the file where the project tree is writable, and ingest it there.
+
+    Host: write into originals/ and ingest locally. Sandbox (read-only mount):
+    POST the bytes to the host service, which does the same thing plus
+    embeddings. Either way the result is one manifest-registered document.
+    """
+    if _originals_writable(project):
+        if src is not None and data is None:
+            record = ingest.ingest_path(project, src, role=role)
+        else:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                staged = Path(tmpdir) / name
+                staged.write_bytes(data or b"")
+                record = ingest.ingest_path(project, staged, role=role)
+        return {"ingested": record["path"], "extraction_status": record["extraction_status"],
+                "indexed_by": "local"}
+
+    if data is None:
+        data = src.read_bytes()
+    try:
+        from labmate_rag import client as rag_client
+    except ImportError as exc:  # pragma: no cover - labmate_rag ships alongside labmate
+        raise IntakeError(
+            f"{project.root} is read-only and the labmate_rag client is unavailable ({exc}). "
+            "Deploy labmate_rag into the sandbox, or run intake on the host."
+        ) from exc
+    try:
+        summary = rag_client.intake(project.id, name, data, base_url=_rag_url(), role=role)
+    except rag_client.RagApiError as exc:
+        raise IntakeError(
+            f"{project.root} is read-only and the host service did not accept the file: {exc}. "
+            f"Start it on the host with: python -m labmate_rag serve --bind auto"
+        ) from exc
+    return {"ingested": summary.get("accepted"),
+            "extraction_status": next((d["status"] for d in summary.get("ingested", [])
+                                       if d["path"] == summary.get("accepted")), "unknown"),
+            "indexed_by": "host", "chunks": sum(d["chunks"] for d in summary.get("ingested", []))}
+
+
 def intake_slack_file(
     project_id: str,
     url: str,
@@ -109,29 +164,14 @@ def intake_slack_file(
     project = Project(project_id)
     name = _check_name(filename)
     data = _download(url, token, _max_bytes())
-
-    # write to a temp file first so a failed ingest never leaves a half file in
-    # originals/ for the watcher to trip over
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(name).suffix) as tmp:
-        tmp.write(data)
-        tmp_path = Path(tmp.name)
-    try:
-        staged = tmp_path.parent / name
-        tmp_path.replace(staged)
-        record = ingest.ingest_path(project, staged, role=role)
-    finally:
-        for p in (tmp_path, tmp_path.parent / name):
-            if p.exists():
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
+    result = _deliver(project, name, data, None, role)
 
     return {
         "project_id": project_id,
-        "ingested": record["path"],
+        "ingested": result["ingested"],
         "bytes": len(data),
-        "extraction_status": record["extraction_status"],
+        "extraction_status": result["extraction_status"],
+        "indexed_by": result["indexed_by"],
         "message": f"Added {name} to project {project_id}. It is now a local file; "
         f"ask about it or audit it by project id. The file is stored locally only.",
     }
@@ -140,13 +180,17 @@ def intake_slack_file(
 def intake_local_file(project_id: str, path: str, role: str = "evidence") -> dict:
     """Ingest a file already on disk. The test path, and useful from a host mount."""
     project = Project(project_id)
-    _check_name(os.path.basename(path))
-    record = ingest.ingest_path(project, Path(path), role=role)
+    name = _check_name(os.path.basename(path))
+    src = Path(path)
+    if not src.is_file():
+        raise FileNotFoundError(f"no such file: {src}")
+    result = _deliver(project, name, None, src, role)
     return {
         "project_id": project_id,
-        "ingested": record["path"],
-        "extraction_status": record["extraction_status"],
-        "message": f"Ingested {record['path']} into project {project_id}.",
+        "ingested": result["ingested"],
+        "extraction_status": result["extraction_status"],
+        "indexed_by": result["indexed_by"],
+        "message": f"Ingested {result['ingested']} into project {project_id}.",
     }
 
 

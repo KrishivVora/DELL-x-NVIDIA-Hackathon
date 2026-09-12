@@ -96,3 +96,25 @@ text, no values, and no excerpts. Never compose this message yourself.
 `--event <name>` `[--field k=v ...]`
 
 Appends a metadata-only event to the audit history. Never log document content.
+
+## `python3 -m labmate.slack_intake` — bring a shared file into the project
+
+Not a `labmate` subcommand; a module you run directly.
+
+| Flag | Meaning |
+|---|---|
+| `--project P` | Project the file belongs to. |
+| `--url <url_private_download>` | Slack's download URL from the file-shared event. |
+| `--name <filename>` | The file name, with extension. |
+| `--local-file <path>` | Ingest a file already on disk instead of downloading. |
+| `--role evidence\|manuscript` | Defaults to `evidence`. |
+
+The Slack bot token comes from the environment (`SLACK_BOT_TOKEN`); never pass
+it on the command line. Allowed types: pdf, csv, tsv, txt, md, json, yaml, yml,
+py, ipynb, tex. Anything else, or a file over the size cap, is refused.
+
+Returns JSON: `ingested` (project-relative path), `extraction_status`,
+`indexed_by` (`host` when the project folder is read-only, which is normal in
+the sandbox). After it returns, the file is a normal project file: retrievable
+with `labmate retrieve`, readable with `labmate read`, checkable with
+`labmate verify`.

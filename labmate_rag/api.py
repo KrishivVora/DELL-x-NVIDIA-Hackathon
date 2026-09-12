@@ -4,6 +4,8 @@ the heavy dependencies or a MongoDB route.
     GET  /api/health              -> {"status": "ok", ...}
     POST /api/retrieve            {"project_id", "query", "k"}   -> {"results": [...]}
     POST /api/ingest              {"project_id", "force"}        -> ingest summary
+    POST /api/intake              {"project_id", "filename", "content_b64", "role"}
+                                  -> ingest summary (a Slack upload landing locally)
 
 Stdlib only. Bind it to the openshell-docker gateway (172.18.0.1 today) so the
 sandbox reaches it as http://host.openshell.internal:8700; the matching
@@ -50,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
-        if length > 1 << 20:
+        if length > 40 << 20:   # base64 of the 25 MB upload cap, plus headroom
             raise ValueError("request body too large")
         raw = self.rfile.read(length) if length else b"{}"
         body = json.loads(raw or b"{}")
@@ -82,6 +84,19 @@ class Handler(BaseHTTPRequestHandler):
                 log.info("retrieve project=%s query_chars=%d k=%d results=%d %.0fms",
                          project_id, len(query), k, len(results), 1000 * (time.monotonic() - started))
                 return self._json(200, {"results": results})
+            if self.path == "/api/intake":
+                import base64
+
+                from .ingest import accept_upload
+                project_id, filename = str(body["project_id"]), str(body["filename"])
+                data = base64.b64decode(body["content_b64"], validate=True)
+                summary = accept_upload(project_id, filename, data,
+                                        role=str(body.get("role", "evidence")))
+                log.info("intake project=%s name=%s bytes=%d chunks=%s %.0fms",
+                         project_id, filename, len(data),
+                         sum(d["chunks"] for d in summary["ingested"]),
+                         1000 * (time.monotonic() - started))
+                return self._json(200, summary)
             if self.path == "/api/ingest":
                 from .ingest import ingest_project
                 project_id = str(body["project_id"])

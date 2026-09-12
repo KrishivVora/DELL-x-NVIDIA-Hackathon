@@ -132,13 +132,20 @@ def pending_work(project: Project, meeting_window_hours: float = 3.0) -> list[di
         )
 
     # ROUTINE: missing-evidence claims worth re-searching in case new files help.
+    # A file nobody has cited yet (a Slack upload, say) is the likeliest reason
+    # an unsupported claim can now be settled, so that case skips the rate limit.
     missing = [c for c in claims if c.get("status") == "missing_evidence"]
     if missing:
+        cited = {f for c in claims for f in c.get("evidence_files", [])}
+        new_files = [f for f in changed["added"] if f not in cited]
         items.append(
             {
                 "kind": "research_missing",
-                "summary": f"re-search evidence for {len(missing)} unsupported claim(s)",
-                "detail": {"claim_ids": [c["claim_id"] for c in missing]},
+                "summary": f"re-search evidence for {len(missing)} unsupported claim(s)"
+                + (f"; {len(new_files)} new file(s) arrived" if new_files else ""),
+                "detail": {"claim_ids": [c["claim_id"] for c in missing],
+                           "new_files": new_files},
+                "urgent": bool(new_files),
             }
         )
 
@@ -166,7 +173,7 @@ def pending_work(project: Project, meeting_window_hours: float = 3.0) -> list[di
     last = _last_run(project)
     for it in items:
         it["priority"] = PRIORITY.get(it["kind"], 0)
-        limit = _rate_limit(it["kind"])
+        limit = 0 if it.get("urgent") else _rate_limit(it["kind"])
         since = time.time() - last.get(it["kind"], 0)
         it["rate_limit_s"] = limit
         it["eligible"] = since >= limit
@@ -193,8 +200,9 @@ PROMPTS = {
     ),
     "research_missing": (
         "Scheduled check, project {project}. Claims {claim_ids} were marked missing-evidence "
-        "earlier. Using the research-assistant and claimtrace skills, search the current "
-        "files again; if evidence now exists, verify and update the claim, otherwise leave it."
+        "earlier, and these files are new since the last audit: {new_files}. Using the "
+        "research-assistant and claimtrace skills, search the current files again; if evidence "
+        "now exists, verify and update the claim, otherwise leave it."
     ),
     "goals_refresh": (
         "Scheduled check, project {project}. Reassess progress against the recorded goals "
@@ -214,6 +222,7 @@ def build_prompt(project_id: str, item: dict) -> str:
     return PROMPTS[item["kind"]].format(
         project=project_id,
         changed=", ".join(detail.get("changed", [])) or "none",
+        new_files=", ".join(detail.get("new_files", [])) or "none",
         claim_ids=", ".join(detail.get("claim_ids", [])) or "none",
         meeting_id=detail.get("meeting_id", ""),
     )
@@ -252,6 +261,8 @@ def tick(project: Project, template: str, dry_run: bool, meeting_window_hours: f
         proc = subprocess.run(command, shell=True, capture_output=True, text=True)  # noqa: S602
         event["exit_code"] = proc.returncode
         event["stderr_tail"] = proc.stderr.strip()[-500:]
+    # A dry run consumes the rate limit too, so a rehearsal shows exactly what a
+    # live run would do next. To replay one, override LABMATE_RATELIMIT_<KIND>=0.
     _record_run(project, chosen["kind"])
     return event
 
