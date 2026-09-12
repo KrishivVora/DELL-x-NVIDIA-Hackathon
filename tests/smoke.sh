@@ -110,6 +110,49 @@ BRIEF=$(ls "$P"/reports/brief-m-001-*.md | head -1)
 grep -q "Open items from earlier analysis" "$BRIEF" && pass "brief written with sources and open items" || fail "brief missing sections"
 grep -q "no longer matches" "$BRIEF" && pass "brief carries the written summary" || fail "summary not saved"
 
+
+echo "== scheduler backlog and priority =="
+# reset to: verified conflict, missing-evidence claim, one unverified claim
+rm -rf "$P/audit-state.json" "$P/reports" "$P/meetings.json"
+git checkout -- "$P/originals/results.csv" 2>/dev/null || true
+$CT claim-set --claim "Accuracy improves by 12%." --location p7 --type quantitative --reported 12 >/dev/null
+$CT verify --op csv_delta --claim-id claim-001 --reported 12 \
+  --args '{"path":"originals/results.csv","value_column":"accuracy","group_column":"method","baseline":"baseline","treatment":"ours"}' >/dev/null
+$CT claim-set --claim "More robust to noise." --location p9 --type interpretive --status missing_evidence --explanation "no noise variation" >/dev/null
+$CT claim-set --claim "Uses five datasets." --location p4 --type methodological >/dev/null
+$CT snapshot >/dev/null
+
+SCHED="python3 -m labmate.scheduler --project fixture-project --once --dry-run"
+
+# a meeting 2h out with no brief should be the top action
+WHEN=$(python3 -c "from datetime import datetime,timedelta,timezone;print((datetime.now(timezone.utc)+timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M'))")
+$CT meeting-set --title "Advisor sync" --when "$WHEN" --topics accuracy >/dev/null
+$SCHED | tail -1 | python3 -c "
+import json,sys; e=json.load(sys.stdin)
+assert e['action']=='meeting_brief', e['action']
+" && pass "imminent meeting without a brief is the top scheduled action" || fail "scheduler did not prioritise the meeting brief"
+
+# a changed evidence file must outrank the meeting (reverify, priority 100)
+cp tests/results-v2.csv "$P/originals/results.csv"
+$SCHED | tail -1 | python3 -c "
+import json,sys; e=json.load(sys.stdin)
+assert e['action']=='reverify', e['action']
+assert e['backlog'][0]['kind']=='reverify'
+" && pass "a changed evidence file outranks everything else" || fail "reverify did not take top priority"
+git checkout -- "$P/originals/results.csv" 2>/dev/null || true
+$CT snapshot >/dev/null
+
+# rate limit: verify_new runs once, then is held on the next tick
+rm -f "$P/meetings.json"
+$SCHED | tail -1 | python3 -c "import json,sys;assert json.load(sys.stdin)['action']=='verify_new'" \
+  && pass "unverified claim picked when nothing urgent" || fail "verify_new not picked"
+$SCHED | tail -1 | python3 -c "
+import json,sys; e=json.load(sys.stdin)
+assert e['action']!='verify_new', 'verify_new should be rate-limited now'
+held=[b['kind'] for b in e['backlog'] if not b['eligible']]
+assert 'verify_new' in held, held
+" && pass "verify_new is rate-limit held on the next tick" || fail "rate limit did not hold verify_new"
+
 echo "== notification is sanitized =="
 MSG=$($CT notify --reason "source file changed" | python3 -c 'import json,sys;print(json.load(sys.stdin)["message"])')
 echo "$MSG"
