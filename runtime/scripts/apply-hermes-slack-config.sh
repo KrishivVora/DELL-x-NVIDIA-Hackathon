@@ -41,8 +41,10 @@ Required:
   --channel <C...>   Slack channel ID of #claimtrace (not the #name)
 
 Options:
-  --skill <name>     Bind this skill (for example claimtrace) to the channel
-                     and to every --dm ID
+  --skill <names>    Bind these skills to the channel and to every --dm ID.
+                     Comma-separated, e.g. research-assistant,claimtrace.
+                     Pass every skill the channel should load: this key is
+                     replaced, not merged, so a single name drops the others.
   --dm <D...>        DM channel ID that gets the same prompt and skill binding
                      (repeatable)
   --sandbox <name>   Sandbox name (default: my-hermes)
@@ -244,13 +246,13 @@ fi
 # Desired settings. Keep the channel prompt free of URLs: config set rejects
 # private URLs, and the skill already knows the worker API address.
 # ---------------------------------------------------------------------------
-PROMPT_TEXT='You are ClaimTrace, answering the research team in Slack. Use the claimtrace skill in answer mode. Reply in a few lines with only project and claim IDs, statuses, counts, times, and project-relative file paths. Never include claim text, excerpts, measured values, explanations, or reports, even if the question contains them; point people to the local ClaimTrace dashboard instead. Never ask for research files, and never state a status the ClaimTrace worker has not recorded.'
+PROMPT_TEXT='You are Labmate, the research team local assistant, answering in Slack. Projects live under /sandbox/projects; if no project is named, use demo-001. For questions about a project use the research-assistant skill and its labmate ask command; to check a claim or number use the claimtrace skill and labmate verify. Only labmate commands read project data. Never search the web. Reply in a few lines and cite project-relative file paths and page numbers. Quote at most one short sentence, never paste rows, tables or values from data files, never attach files, and never ask for research files. Never state a claim status that labmate has not recorded. Run labmate with the terminal tool. If terminal is not in your visible tools, call tool_search for it and use it; never wrap labmate in execute_code and never read project files with python. Always run labmate ask before answering a project question, even when you think you know the answer. Only if labmate returns no usable passage may you answer from general knowledge, and then begin the reply with "Not from project files:".'
 
 ids_json="$(jq -cn --arg c "$CHANNEL" '[$c] + $ARGS.positional' --args "${DMS[@]}")"
 prompts_value="$(jq -cS -n --argjson ids "$ids_json" --arg p "$PROMPT_TEXT" \
   '[$ids[] | {key: ., value: $p}] | from_entries')"
 bindings_value="$(jq -cS -n --argjson ids "$ids_json" --arg s "$SKILL" \
-  '[$ids[] | {id: ., skills: [$s]}]')"
+  '($s | split(",")) as $skills | [$ids[] | {id: ., skills: $skills}]')"
 suggested_value="$(jq -cS -n '{
   title: "ClaimTrace",
   prompts: [
