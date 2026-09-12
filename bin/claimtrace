@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# Thin wrapper so the skill can call `claimtrace` instead of `python -m claimtrace`.
-# Installed to /usr/local/bin/claimtrace inside the sandbox by scripts/deploy-to-sandbox.sh.
-set -euo pipefail
-export CLAIMTRACE_HOME="${CLAIMTRACE_HOME:-/sandbox/workspace/claimtrace-app}"
-export CLAIMTRACE_PROJECTS_ROOT="${CLAIMTRACE_PROJECTS_ROOT:-/sandbox/workspace/projects}"
-exec python3 -m claimtrace "$@"

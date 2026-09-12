@@ -20,7 +20,7 @@ def now() -> str:
 
 
 def projects_root() -> Path:
-    return Path(os.environ.get("CLAIMTRACE_PROJECTS_ROOT", "projects")).expanduser()
+    return Path(os.environ.get("LABMATE_PROJECTS_ROOT", "projects")).expanduser()
 
 
 class ProjectError(RuntimeError):
@@ -34,7 +34,7 @@ class Project:
         if not self.root.is_dir():
             raise ProjectError(
                 f"project '{project_id}' not found at {self.root}. "
-                f"Set CLAIMTRACE_PROJECTS_ROOT or check the project id."
+                f"Set LABMATE_PROJECTS_ROOT or check the project id."
             )
 
     # -- paths ---------------------------------------------------------------

@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import meetings as meetings_mod
 from . import report as report_mod
 from . import retrieval, verify
 from .store import STATUSES, Project, ProjectError, now
@@ -187,6 +188,90 @@ def _searchable(p: Project) -> list[str]:
     return paths
 
 
+def cmd_ask(p: Project, a) -> dict:
+    """Answer a question from local sources. Returns passages; the agent writes the answer."""
+    result = retrieval.retrieve(p, a.query, a.k)
+    return {
+        "question": a.query,
+        "backend": result["backend"],
+        "fallback_reason": result.get("fallback_reason"),
+        "passages": [
+            {
+                "path": r["path"],
+                "page": r.get("page"),
+                "section": r.get("section"),
+                "score": r.get("score"),
+                "text": r["text"][: a.chars],
+            }
+            for r in result["results"]
+        ],
+        "instruction": (
+            "Answer only from these passages. Cite every statement as `path` "
+            "(page N). If they do not contain the answer, say so and suggest "
+            "what to look for."
+        ),
+    }
+
+
+def cmd_digest(p: Project, a) -> dict:
+    activity = meetings_mod.recent_activity(p, a.days)
+    changes = cmd_changes(p, a)
+    upcoming = meetings_mod.list_meetings(p, within_days=a.meeting_window)
+    open_items = [c for c in p.claims() if c.get("status") in ("conflicting", "missing_evidence")]
+    return {
+        "project_id": p.id,
+        "generated_at": now(),
+        "recent_files": activity["recent_files"],
+        "unaudited_changes": changes["changed"],
+        "affected_claims": changes["affected_claims"],
+        "open_items": [
+            {"claim_id": c["claim_id"], "claim": c.get("claim"), "status": c.get("status")}
+            for c in open_items
+        ],
+        "upcoming_meetings": [
+            {"id": m["id"], "title": m.get("title"), "when": m.get("when"),
+             "hours_away": m.get("hours_away"), "has_brief": bool(m.get("brief_path"))}
+            for m in upcoming
+        ],
+    }
+
+
+def cmd_meeting_set(p: Project, a) -> dict:
+    meeting = meetings_mod.upsert(
+        p,
+        {
+            "id": a.id,
+            "title": a.title,
+            "when": a.when,
+            "attendees": a.attendees,
+            "topics": a.topics,
+            "notes": a.notes,
+        },
+    )
+    return {"meeting": meeting}
+
+
+def cmd_meeting_list(p: Project, a) -> dict:
+    ms = meetings_mod.list_meetings(p, within_days=a.within_days)
+    return {"count": len(ms), "meetings": ms}
+
+
+def cmd_meeting_brief(p: Project, a) -> dict:
+    context = meetings_mod.brief_context(p, a.id, k=a.k, days=a.days)
+    summary = a.summary
+    if a.summary_file:
+        summary = sys.stdin.read() if a.summary_file == "-" else Path(a.summary_file).read_text()
+    if summary is None:
+        context["next_step"] = (
+            "Write the briefing from this context, then call meeting-brief again "
+            "with --summary (or --summary-file -) to save it."
+        )
+        return context
+    path = meetings_mod.write_brief(p, a.id, summary, context)
+    p.log("brief_written", meeting=a.id)
+    return {"brief_path": path, "meeting": a.id}
+
+
 def cmd_claim_set(p: Project, a) -> dict:
     claim = {
         "claim_id": a.claim_id or p.next_claim_id(),
@@ -220,7 +305,7 @@ def cmd_claim_list(p: Project, a) -> dict:
     return {"count": len(claims), "claims": claims}
 
 
-def cmd_changes(p: Project, a) -> dict:
+def cmd_changes(p: Project, a=None) -> dict:
     changed = p.changed_files()
     touched = sorted(set(changed["added"] + changed["removed"] + changed["modified"]))
     affected = [
@@ -261,7 +346,7 @@ def cmd_notify(p: Project, a) -> dict:
     changed_count = len(changed["added"] + changed["removed"] + changed["modified"])
     reason = a.reason or "audit complete"
     message = (
-        f"ClaimTrace · project {p.id} · {reason}: "
+        f"Labmate · project {p.id} · {reason}: "
         f"{tally['supported']} supported, {tally['conflicting']} conflicting, "
         f"{tally['missing_evidence']} missing evidence, {tally['unverifiable']} unverifiable"
         + (f" · {changed_count} source file(s) changed" if changed_count else "")
@@ -279,8 +364,8 @@ def cmd_log(p: Project, a) -> dict:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="claimtrace", description="ClaimTrace deterministic tools")
-    ap.add_argument("--project", required=True, help="project id under CLAIMTRACE_PROJECTS_ROOT")
+    ap = argparse.ArgumentParser(prog="labmate", description="Labmate: local research agent tools")
+    ap.add_argument("--project", required=True, help="project id under LABMATE_PROJECTS_ROOT")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("project-status", help="manifest summary, manuscript, pending changes")
@@ -295,6 +380,33 @@ def build_parser() -> argparse.ArgumentParser:
     q = sub.add_parser("retrieve", help="find evidence candidates (not verification)")
     q.add_argument("--query", required=True)
     q.add_argument("-k", type=int, default=5)
+
+    ask = sub.add_parser("ask", help="answer a question from local sources, with citations")
+    ask.add_argument("--query", required=True)
+    ask.add_argument("-k", type=int, default=6)
+    ask.add_argument("--chars", type=int, default=1200, help="max characters per passage")
+
+    dg = sub.add_parser("digest", help="what changed, what is open, what is coming up")
+    dg.add_argument("--days", type=float, default=7.0)
+    dg.add_argument("--meeting-window", type=float, default=7.0, help="days ahead to list meetings")
+
+    ms = sub.add_parser("meeting-set", help="create or update a meeting in the local register")
+    ms.add_argument("--id")
+    ms.add_argument("--title")
+    ms.add_argument("--when", help="YYYY-MM-DD or YYYY-MM-DDTHH:MM")
+    ms.add_argument("--attendees", nargs="*")
+    ms.add_argument("--topics", nargs="*", help="what the meeting is about; drives retrieval")
+    ms.add_argument("--notes")
+
+    ml = sub.add_parser("meeting-list", help="list meetings")
+    ml.add_argument("--within-days", type=float)
+
+    mb = sub.add_parser("meeting-brief", help="assemble briefing context, or save a written brief")
+    mb.add_argument("--id", required=True)
+    mb.add_argument("-k", type=int, default=3, help="passages per topic")
+    mb.add_argument("--days", type=float, default=7.0, help="activity window")
+    mb.add_argument("--summary", help="the written briefing; omit to get the context first")
+    mb.add_argument("--summary-file", help="read the briefing from a file, or - for stdin")
 
     i = sub.add_parser("inspect-csv", help="columns, dtypes and head of a CSV")
     i.add_argument("--path", required=True)
@@ -343,6 +455,11 @@ HANDLERS = {
     "project-status": cmd_project_status,
     "read": cmd_read,
     "retrieve": cmd_retrieve,
+    "ask": cmd_ask,
+    "digest": cmd_digest,
+    "meeting-set": cmd_meeting_set,
+    "meeting-list": cmd_meeting_list,
+    "meeting-brief": cmd_meeting_brief,
     "inspect-csv": cmd_inspect_csv,
     "verify": cmd_verify,
     "claim-set": cmd_claim_set,

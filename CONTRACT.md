@@ -1,4 +1,4 @@
-# ClaimTrace integration contract
+# Labmate integration contract
 
 Frozen interface between the three workstreams. Change it only by agreement —
 everything downstream is written against this file.
@@ -6,12 +6,12 @@ everything downstream is written against this file.
 | Lane | Owns | Produces |
 |---|---|---|
 | Ingestion / RAG | `ingest.py`, extraction, embeddings, MongoDB | `manifest.json`, `extracted/`, `retrieve()` |
-| Agent / skills | `skills/claimtrace/`, `claimtrace/*` tools, watcher | claim records, reports, audit state |
+| Agent / skills | `skills/*`, `labmate/*` tools, watcher | answers, briefings, claim records, reports |
 | Runtime / Slack | NemoClaw, OpenShell policy, Slack channel | a live Hermes sandbox that can run the tools |
 
 ## 1. Project layout on disk
 
-Every project is one directory. `CLAIMTRACE_PROJECTS_ROOT` points at the parent
+Every project is one directory. `LABMATE_PROJECTS_ROOT` points at the parent
 (default `./projects`).
 
 ```text
@@ -20,7 +20,8 @@ projects/<project_id>/
 ├── extracted/        # text extracted from originals, written by ingestion
 ├── manifest.json     # written by ingestion, read by the agent
 ├── audit-state.json  # written by the agent only
-└── reports/          # written by the agent only
+├── meetings.json     # local meeting register, agent or researcher
+└── reports/          # answers, briefings and audit reports; agent only
 ```
 
 ## 2. `manifest.json` — ingestion writes, agent reads
@@ -72,10 +73,14 @@ Rules:
 Python entry point, imported by `claimtrace/retrieval.py`:
 
 ```python
-# module: claimtrace_rag
+# module: labmate_rag  (claimtrace_rag is also accepted)
 def retrieve(project_id: str, query: str, k: int = 5) -> list[dict]:
-    """Return up to k evidence candidates, best first."""
+    """Return up to k relevant passages, best first."""
 ```
+
+This one function backs everything: question answering, meeting briefings, and
+evidence discovery for claim checking. It is the highest-value thing the
+ingestion lane produces.
 
 Each result:
 
@@ -87,17 +92,27 @@ Each result:
 - `path` must match a `manifest.json` `path` exactly.
 - `page` and `section` may be `null`; `path` and `text` may not.
 - `score` is higher-is-better. Scale does not matter.
-- Set `CLAIMTRACE_RAG_MODULE` to override the module name.
+- Set `LABMATE_RAG_MODULE` to override the module name.
 
 **Fallback:** if the module is missing or raises, the agent silently falls back to
 a local keyword search over `extracted/`. The demo therefore still runs end to end
-if MongoDB is not ready. `claimtrace retrieve` reports which backend served the
-query in `"backend"`.
+if MongoDB is not ready. `labmate ask` and `labmate retrieve` report which
+backend served the query in `"backend"`, and the skills are required to say so
+when the fallback is in use.
 
 ## 4. Retrieval is not verification
 
 Retrieval only nominates candidates. Every number in a report comes from a
 deterministic tool call recorded in the claim record. The model never computes.
+
+## 4b. What the agent does with it
+
+| Capability | Skill | Entry command |
+|---|---|---|
+| Answer a question about the project | `research-assistant` | `labmate ask` |
+| Catch up on what changed | `research-assistant` | `labmate digest` |
+| Prepare a meeting briefing | `meeting-prep` | `labmate meeting-brief` |
+| Check a claim or number against data | `claimtrace` | `labmate verify` |
 
 ## 5. Claim record — the agent's output schema
 
@@ -106,6 +121,6 @@ See `skills/claimtrace/references/output-schema.md`. Stored in
 
 ## 6. Slack — runtime lane consumes
 
-`claimtrace notify --project <id>` prints the only text allowed to leave the box:
+`labmate notify --project <id>` prints the only text allowed to leave the box:
 project id, counts by status, changed-file count, local report path. No claim
 text, no excerpts, no values, no file contents.

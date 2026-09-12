@@ -1,0 +1,19 @@
+{
+  "meetings": [
+    {
+      "id": "m-001",
+      "title": "Weekly sync",
+      "when": "2026-09-15T10:00",
+      "attendees": [
+        "Dr. Rao"
+      ],
+      "topics": [
+        "accuracy improvements",
+        "dataset coverage"
+      ],
+      "created_at": "2026-09-12T19:05:31Z",
+      "brief_path": "tests/fixture-project/reports/brief-m-001-20260912T190532Z.md",
+      "last_brief_at": "2026-09-12T19:05:32Z"
+    }
+  ]
+}

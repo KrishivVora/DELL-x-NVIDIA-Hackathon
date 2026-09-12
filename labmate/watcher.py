@@ -5,10 +5,10 @@ recorded claim depends on changes, it wakes the agent with a one-shot Hermes
 turn scoped to the affected claims. No user prompt is involved.
 
 Run inside the sandbox:
-    python -m claimtrace.watcher --project project-123
+    python -m labmate.watcher --project project-123
 
-Trigger command (override with CLAIMTRACE_TRIGGER_CMD, {prompt} is substituted):
-    hermes -z {prompt} -s claimtrace --yolo
+Trigger command (override with LABMATE_TRIGGER_CMD, {prompt} is substituted):
+    hermes -z {prompt} -s research-assistant -s claimtrace --yolo
 
 Polling on hashes is deliberate. A filesystem-event library would be fewer
 lines but has more ways to be silently wrong during a live demo.
@@ -25,15 +25,15 @@ import time
 
 from .store import Project, ProjectError, now
 
-DEFAULT_TRIGGER = "hermes -z {prompt} -s claimtrace --yolo"
+DEFAULT_TRIGGER = "hermes -z {prompt} -s research-assistant -s claimtrace --yolo"
 
 PROMPT = (
-    "Autonomous re-audit for ClaimTrace project {project}. "
-    "These source artifacts changed since the last audit: {files}. "
-    "Run the incremental re-audit workflow from the claimtrace skill: "
-    "identify the claims that cite those files, re-run their verification, "
-    "update the claim records, write the report, and emit the sanitized notification. "
-    "Do not re-audit unaffected claims."
+    "Autonomous check for research project {project}. These files changed: {files}. "
+    "Run `labmate --project {project} digest` first. Then: if any recorded claim cites a "
+    "changed file, re-run that claim's recorded verification with the claimtrace skill and "
+    "report anything that flipped. If a meeting is scheduled within the next 24 hours and its "
+    "topics touch the changed files, refresh its brief. Otherwise summarise what changed and "
+    "why it matters. Finish with the sanitized notification. Do not re-audit unaffected claims."
 )
 
 
@@ -72,7 +72,7 @@ def trigger(project: Project, changed: dict, template: str, dry_run: bool) -> di
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="claimtrace.watcher", description="ClaimTrace always-on monitor")
+    ap = argparse.ArgumentParser(prog="labmate.watcher", description="ClaimTrace always-on monitor")
     ap.add_argument("--project", required=True)
     ap.add_argument("--interval", type=float, default=5.0, help="seconds between hash scans")
     ap.add_argument("--trigger", default=None, help="command template, {prompt} is substituted")
@@ -84,7 +84,7 @@ def main(argv=None) -> int:
 
     import os
 
-    template = args.trigger or os.environ.get("CLAIMTRACE_TRIGGER_CMD", DEFAULT_TRIGGER)
+    template = args.trigger or os.environ.get("LABMATE_TRIGGER_CMD", DEFAULT_TRIGGER)
 
     try:
         project = Project(args.project)

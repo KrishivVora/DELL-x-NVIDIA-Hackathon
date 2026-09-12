@@ -28,19 +28,24 @@ def _tokens(text: str) -> list[str]:
 
 
 def retrieve(project: Project, query: str, k: int = 5) -> dict:
-    module_name = os.environ.get("CLAIMTRACE_RAG_MODULE", "claimtrace_rag")
-    if os.environ.get("CLAIMTRACE_FORCE_FALLBACK") != "1":
-        try:
-            mod = importlib.import_module(module_name)
-            results = mod.retrieve(project.id, query, k)
-            cleaned = [_normalize(r) for r in results][:k]
-            return {"backend": module_name, "query": query, "results": cleaned}
-        except ModuleNotFoundError:
-            reason = f"{module_name} not installed"
-        except Exception as exc:  # noqa: BLE001 - degrade instead of failing the audit
-            reason = f"{module_name} raised {type(exc).__name__}: {exc}"
+    override = os.environ.get("LABMATE_RAG_MODULE")
+    candidates = [override] if override else ["labmate_rag", "claimtrace_rag"]
+    if os.environ.get("LABMATE_FORCE_FALLBACK") == "1":
+        reason = "LABMATE_FORCE_FALLBACK=1"
     else:
-        reason = "CLAIMTRACE_FORCE_FALLBACK=1"
+        reason = f"none of {candidates} importable"
+        for module_name in candidates:
+            try:
+                mod = importlib.import_module(module_name)
+            except ModuleNotFoundError:
+                continue
+            try:
+                results = mod.retrieve(project.id, query, k)
+                return {"backend": module_name, "query": query,
+                        "results": [_normalize(x) for x in results][:k]}
+            except Exception as exc:  # noqa: BLE001 - degrade instead of failing
+                reason = f"{module_name} raised {type(exc).__name__}: {exc}"
+                break
 
     return {
         "backend": "local-keyword-fallback",

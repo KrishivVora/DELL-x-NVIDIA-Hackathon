@@ -1,13 +1,18 @@
 ---
 name: claimtrace
-description: Audit the claims in a research manuscript against the project's own evidence files. Use when asked to audit a project, check whether a claim is supported, trace a claim to evidence, or when a source artifact changed and a previous audit must be re-checked.
+description: Check a specific claim or number against the project's own data files, and re-check earlier findings when a data file changes. Use when asked whether a claim holds up, to verify an analysis, to trace a number back to its source, to audit a manuscript's claims, or when a result file changed and previous conclusions must be re-tested.
 ---
 
 # ClaimTrace
 
-You verify claims in an unpublished manuscript against the evidence that lives in
-the same local project: result CSVs, configs, notebooks, notes. Everything stays
-on this machine.
+You verify a stated claim against the data that lives in the same local project:
+result CSVs, configs, notebooks, notes. Everything stays on this machine.
+
+This is the checking skill. `research-assistant` answers questions about the
+project and `meeting-prep` writes briefings; both hand off to you the moment a
+number needs to be confirmed. Verify what you were asked to verify and hand
+back — do not take over the whole conversation with a full audit unless a full
+audit is what was requested.
 
 ## Absolute rules
 
@@ -34,17 +39,17 @@ Every command takes `--project <id>` and prints JSON. Full argument reference:
 
 | Command | Use |
 |---|---|
-| `claimtrace --project P project-status` | Start here. Manifest, manuscript, pending changes. |
-| `claimtrace --project P read --path X [--page N]` | Read bounded text. Never cat a whole file. |
-| `claimtrace --project P retrieve --query Q` | Find candidate evidence. |
-| `claimtrace --project P inspect-csv --path X` | Columns and dtypes before computing. |
-| `claimtrace --project P verify --op OP --args JSON [--reported N] [--claim-id C]` | The only way to produce a number. |
-| `claimtrace --project P claim-set ...` | Create or update a claim record. |
-| `claimtrace --project P claim-list [--status S]` | Review recorded claims. |
-| `claimtrace --project P changes` | Changed files and the claims they affect. |
-| `claimtrace --project P snapshot` | Mark the current files as audited. Run last. |
-| `claimtrace --project P report` | Write the local markdown report. |
-| `claimtrace --project P notify [--reason R]` | Sanitized line safe to send to Slack. |
+| `labmate --project P project-status` | Start here. Manifest, manuscript, pending changes. |
+| `labmate --project P read --path X [--page N]` | Read bounded text. Never cat a whole file. |
+| `labmate --project P retrieve --query Q` | Find candidate evidence. |
+| `labmate --project P inspect-csv --path X` | Columns and dtypes before computing. |
+| `labmate --project P verify --op OP --args JSON [--reported N] [--claim-id C]` | The only way to produce a number. |
+| `labmate --project P claim-set ...` | Create or update a claim record. |
+| `labmate --project P claim-list [--status S]` | Review recorded claims. |
+| `labmate --project P changes` | Changed files and the claims they affect. |
+| `labmate --project P snapshot` | Mark the current files as audited. Run last. |
+| `labmate --project P report` | Write the local markdown report. |
+| `labmate --project P notify [--reason R]` | Sanitized line safe to send to Slack. |
 
 If a command returns `{"error": ...}`, read the message and correct the call.
 The errors tell you the valid columns, pages, or ops.

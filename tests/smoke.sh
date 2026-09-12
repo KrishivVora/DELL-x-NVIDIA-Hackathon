@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# End-to-end rehearsal of the ClaimTrace agent layer with no model involved.
+# End-to-end rehearsal of the Labmate agent layer with no model involved.
 # Proves: full audit -> supported/conflict/missing, file change detected,
 # affected claim re-verified, status flips supported -> conflicting.
 #
 #     ./tests/smoke.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export CLAIMTRACE_PROJECTS_ROOT=tests
-CT="python3 -m claimtrace --project fixture-project"
+export LABMATE_PROJECTS_ROOT=tests
+CT="python3 -m labmate --project fixture-project"
 P=tests/fixture-project
 
 pass() { printf '  \033[32mok\033[0m  %s\n' "$1"; }
@@ -15,7 +15,7 @@ fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
 status_of() { $CT claim-list | python3 -c "import json,sys;print(next(c['status'] for c in json.load(sys.stdin)['claims'] if c['claim_id']=='$1'))"; }
 
 echo "== reset =="
-rm -rf "$P/audit-state.json" "$P/reports"
+rm -rf "$P/audit-state.json" "$P/reports" "$P/meetings.json"
 git checkout -- "$P/originals/results.csv" 2>/dev/null || true
 
 echo "== full audit =="
@@ -57,7 +57,7 @@ assert 'claim-003' not in ids, 'claim-003 cites no file and must not be affected
 " && pass "affected claims mapped, unaffected claim excluded" || fail "affected-claim mapping wrong"
 
 echo "== watcher fires =="
-WATCH_OUT=$(python3 -m claimtrace.watcher --project fixture-project --once --dry-run)
+WATCH_OUT=$(python3 -m labmate.watcher --project fixture-project --once --dry-run)
 case "$WATCH_OUT" in *"hermes -z"*) pass "watcher built a Hermes one-shot trigger";; *) fail "watcher did not trigger";; esac
 
 echo "== incremental re-audit =="
@@ -72,6 +72,43 @@ $CT verify --op csv_unique_count --claim-id claim-002 --reported 5 \
 
 $CT report >/dev/null
 grep -q "Conflict" "$P/reports/latest.md" && pass "report now shows the conflict" || fail "report missing conflict"
+
+
+echo "== ask =="
+ASK=$($CT ask --query "how much did accuracy improve" -k 3)
+echo "$ASK" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['passages'], 'ask returned no passages'
+assert d['passages'][0]['page'] == 7, d['passages'][0]
+assert 'Cite every statement' in d['instruction']
+" && pass "ask returns cited passages with page numbers" || fail "ask returned nothing usable"
+
+echo "== meetings =="
+$CT meeting-set --title "Weekly sync" --when "2026-09-15T10:00" --attendees "Dr. Rao" \
+  --topics "accuracy improvements" "dataset coverage" >/dev/null
+DIGEST=$($CT digest)
+echo "$DIGEST" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['upcoming_meetings'], 'meeting not in digest'
+assert any(i['status']=='conflicting' for i in d['open_items']), 'conflict not surfaced as an open item'
+" && pass "digest surfaces the meeting and the open conflict" || fail "digest incomplete"
+
+CTX=$($CT meeting-brief --id m-001)
+echo "$CTX" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+topics=[b['topic'] for b in d['evidence_by_topic']]
+assert topics == ['accuracy improvements','dataset coverage'], topics
+assert d['open_items'], 'brief context missing open items'
+assert 'next_step' in d
+" && pass "brief context assembles passages, activity and open items" || fail "brief context incomplete"
+
+$CT meeting-brief --id m-001 --summary "The reported 12% no longer matches the data; recomputed 7.4%." >/dev/null
+BRIEF=$(ls "$P"/reports/brief-m-001-*.md | head -1)
+grep -q "Open items from earlier analysis" "$BRIEF" && pass "brief written with sources and open items" || fail "brief missing sections"
+grep -q "no longer matches" "$BRIEF" && pass "brief carries the written summary" || fail "summary not saved"
 
 echo "== notification is sanitized =="
 MSG=$($CT notify --reason "source file changed" | python3 -c 'import json,sys;print(json.load(sys.stdin)["message"])')

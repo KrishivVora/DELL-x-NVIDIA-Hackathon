@@ -1,7 +1,7 @@
 # Tool reference
 
-Invoke as `claimtrace --project <id> <command>` (or
-`python -m claimtrace --project <id> <command>`). Every command prints one JSON
+Invoke as `labmate --project <id> <command>` (or
+`python -m labmate --project <id> <command>`). Every command prints one JSON
 object. Failures print `{"error": "..."}` and exit 1.
 
 ## project-status
@@ -47,7 +47,7 @@ Pass both together for a quantitative claim.
 Example:
 
 ```bash
-claimtrace --project project-123 verify --op csv_delta \
+labmate --project project-123 verify --op csv_delta \
   --args '{"path":"originals/results.csv","value_column":"accuracy","group_column":"method","baseline":"baseline","treatment":"ours"}' \
   --reported 12.0 --claim-id claim-001
 ```

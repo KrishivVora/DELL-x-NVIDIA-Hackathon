@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Thin wrapper so the skill can call `labmate` instead of `python -m labmate`.
+# Installed to /usr/local/bin/labmate inside the sandbox by scripts/deploy-to-sandbox.sh.
+set -euo pipefail
+export PYTHONPATH="${PYTHONPATH:-}:${LABMATE_HOME:-/sandbox/workspace/labmate-app}"
+export LABMATE_HOME="${LABMATE_HOME:-/sandbox/workspace/labmate-app}"
+export LABMATE_PROJECTS_ROOT="${LABMATE_PROJECTS_ROOT:-/sandbox/workspace/projects}"
+exec python3 -m labmate "$@"
