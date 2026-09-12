@@ -18,7 +18,7 @@ set -euo pipefail
 
 SANDBOX="${1:-my-hermes}"
 APP_DIR="/sandbox/workspace/labmate-app"
-PROJECTS_DIR="${LABMATE_SANDBOX_PROJECTS:-/sandbox/workspace/projects}"
+STATE_DIR="/sandbox/workspace/state"          # agent-written files (LABMATE_STATE_ROOT)
 BIN_DIR="/sandbox/.local/bin"
 SKILLS="research-assistant meeting-prep claimtrace"
 NC="${NEMOCLAW_CLI:-nemoclaw}"
@@ -28,8 +28,20 @@ say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say "Checking sandbox '$SANDBOX'"
 "$NC" "$SANDBOX" status
 
+# A read-only host mount at /sandbox/projects (plan §12.3) wins; otherwise
+# projects are uploaded copies under the writable workspace.
+if [ -n "${LABMATE_SANDBOX_PROJECTS:-}" ]; then
+  PROJECTS_DIR="$LABMATE_SANDBOX_PROJECTS"
+elif "$NC" "$SANDBOX" exec -- test -d /sandbox/projects >/dev/null 2>&1; then
+  PROJECTS_DIR=/sandbox/projects
+else
+  PROJECTS_DIR=/sandbox/workspace/projects
+fi
+echo "projects root in the sandbox: $PROJECTS_DIR"
+
 say "Creating directories in the sandbox"
-"$NC" "$SANDBOX" exec -- mkdir -p "$APP_DIR" "$PROJECTS_DIR" "$BIN_DIR"
+"$NC" "$SANDBOX" exec -- mkdir -p "$APP_DIR" "$STATE_DIR" "$BIN_DIR"
+[ "$PROJECTS_DIR" = /sandbox/projects ] || "$NC" "$SANDBOX" exec -- mkdir -p "$PROJECTS_DIR"
 
 say "Uploading the labmate and labmate_rag packages"
 "$NC" "$SANDBOX" exec -- rm -rf "$APP_DIR/labmate" "$APP_DIR/labmate_rag"
@@ -54,7 +66,7 @@ done
 
 say "Smoke test inside the sandbox"
 "$NC" "$SANDBOX" exec --workdir "$APP_DIR" -- env \
-  PYTHONPATH="$APP_DIR" LABMATE_PROJECTS_ROOT="$PROJECTS_DIR" \
+  PYTHONPATH="$APP_DIR" LABMATE_PROJECTS_ROOT="$PROJECTS_DIR" LABMATE_STATE_ROOT="$STATE_DIR" \
   python3 -m labmate --project __none__ project-status \
   || echo "(expected: 'project not found' — the tool surface is reachable)"
 "$NC" "$SANDBOX" exec -- curl -sf -m 5 http://host.openshell.internal:8700/api/health \
@@ -65,7 +77,8 @@ cat <<NOTE
 Deployed.
   app:      $APP_DIR
   wrapper:  $BIN_DIR/labmate  (on PATH for new shells)
-  projects: $PROJECTS_DIR
+  projects: $PROJECTS_DIR$([ "$PROJECTS_DIR" = /sandbox/projects ] && echo "  (read-only host mount)")
+  state:    $STATE_DIR/<project-id>/  (audit-state.json, meetings.json, reports/)
   skills:   /sandbox/.hermes/skills/{research-assistant,meeting-prep,claimtrace}
   retrieval: labmate_rag -> http://host.openshell.internal:8700 (host: labmate_rag serve --bind auto)
 
@@ -79,6 +92,6 @@ Next:
   3. Prep a meeting:
        $NC $SANDBOX exec -- hermes -z "Prep me for my next meeting on <id>" -s meeting-prep --yolo
   4. Always-on watcher:
-       $NC $SANDBOX exec -- env PYTHONPATH=$APP_DIR LABMATE_PROJECTS_ROOT=$PROJECTS_DIR \\
+       $NC $SANDBOX exec -- env PYTHONPATH=$APP_DIR LABMATE_PROJECTS_ROOT=$PROJECTS_DIR LABMATE_STATE_ROOT=$STATE_DIR \\
          python3 -m labmate.watcher --project <id> --interval 5
 NOTE

@@ -23,6 +23,19 @@ def projects_root() -> Path:
     return Path(os.environ.get("LABMATE_PROJECTS_ROOT", "projects")).expanduser()
 
 
+def state_root() -> Path | None:
+    """Where the agent writes when the project tree itself is read-only.
+
+    NemoClaw host mounts are read-only, so inside the sandbox the project
+    (originals/, extracted/, manifest.json) is visible but not writable. Set
+    LABMATE_STATE_ROOT to a writable directory; audit-state.json, meetings.json
+    and reports/ then live under <state_root>/<project_id>/. Unset, they stay
+    in the project directory as before.
+    """
+    value = os.environ.get("LABMATE_STATE_ROOT")
+    return Path(value).expanduser() if value else None
+
+
 class ProjectError(RuntimeError):
     pass
 
@@ -36,6 +49,8 @@ class Project:
                 f"project '{project_id}' not found at {self.root}. "
                 f"Set LABMATE_PROJECTS_ROOT or check the project id."
             )
+        sr = state_root()
+        self.state_dir = (sr / project_id) if sr else self.root
 
     # -- paths ---------------------------------------------------------------
 
@@ -49,7 +64,7 @@ class Project:
 
     @property
     def reports(self) -> Path:
-        return self.root / "reports"
+        return self.state_dir / "reports"
 
     @property
     def manifest_path(self) -> Path:
@@ -57,7 +72,11 @@ class Project:
 
     @property
     def state_path(self) -> Path:
-        return self.root / "audit-state.json"
+        return self.state_dir / "audit-state.json"
+
+    @property
+    def meetings_path(self) -> Path:
+        return self.state_dir / "meetings.json"
 
     def resolve(self, rel: str) -> Path:
         """Resolve a project-relative path, refusing escapes outside the project."""
@@ -116,6 +135,7 @@ class Project:
 
     def write_state(self, state: dict) -> None:
         state["project_id"] = self.id
+        self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_path.write_text(json.dumps(state, indent=2) + "\n")
 
     def claims(self) -> list[dict]:

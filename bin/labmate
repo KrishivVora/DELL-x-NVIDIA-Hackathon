@@ -4,5 +4,11 @@
 set -euo pipefail
 export PYTHONPATH="${PYTHONPATH:-}:${LABMATE_HOME:-/sandbox/workspace/labmate-app}"
 export LABMATE_HOME="${LABMATE_HOME:-/sandbox/workspace/labmate-app}"
-export LABMATE_PROJECTS_ROOT="${LABMATE_PROJECTS_ROOT:-/sandbox/workspace/projects}"
+# A read-only host mount at /sandbox/projects wins over uploaded copies; the
+# agent's own state then goes to a writable tree.
+if [ -z "${LABMATE_PROJECTS_ROOT:-}" ]; then
+  if [ -d /sandbox/projects ]; then LABMATE_PROJECTS_ROOT=/sandbox/projects; else LABMATE_PROJECTS_ROOT=/sandbox/workspace/projects; fi
+fi
+export LABMATE_PROJECTS_ROOT
+export LABMATE_STATE_ROOT="${LABMATE_STATE_ROOT:-/sandbox/workspace/state}"
 exec python3 -m labmate "$@"

@@ -45,6 +45,7 @@ def cmd_project_status(p: Project, a) -> dict:
     return {
         "project_id": p.id,
         "root": str(p.root),
+        "state_dir": str(p.state_dir),
         "manuscript": manuscript,
         "manuscript_error": manuscript_error,
         "documents": [

@@ -9,13 +9,16 @@ cd "$(dirname "$0")/.."
 export LABMATE_PROJECTS_ROOT=tests
 CT="python3 -m labmate --project fixture-project"
 P=tests/fixture-project
+# Agent-written files live under LABMATE_STATE_ROOT when it is set (read-only
+# project mounts in the sandbox); otherwise in the project directory.
+S="${LABMATE_STATE_ROOT:+$LABMATE_STATE_ROOT/fixture-project}"; S="${S:-$P}"
 
 pass() { printf '  \033[32mok\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
 status_of() { $CT claim-list | python3 -c "import json,sys;print(next(c['status'] for c in json.load(sys.stdin)['claims'] if c['claim_id']=='$1'))"; }
 
 echo "== reset =="
-rm -rf "$P/audit-state.json" "$P/reports" "$P/meetings.json"
+rm -rf "$S/audit-state.json" "$S/reports" "$S/meetings.json"
 git checkout -- "$P/originals/results.csv" 2>/dev/null || true
 
 echo "== full audit =="
@@ -39,7 +42,7 @@ $CT claim-set --claim "The approach is more robust to input noise." \
 
 $CT report >/dev/null
 $CT snapshot >/dev/null
-grep -q "Conflict" "$P/reports/latest.md" && fail "no conflict expected yet" || pass "report written with no conflicts"
+grep -q "Conflict" "$S/reports/latest.md" && fail "no conflict expected yet" || pass "report written with no conflicts"
 
 echo "== no spurious change =="
 [ "$($CT changes | python3 -c 'import json,sys;print(json.load(sys.stdin)["changed_count"])')" = 0 ] \
@@ -71,7 +74,7 @@ $CT verify --op csv_unique_count --claim-id claim-002 --reported 5 \
 [ "$(status_of claim-002)" = supported ] && pass "claim-002 still supported" || fail "claim-002 should stay supported"
 
 $CT report >/dev/null
-grep -q "Conflict" "$P/reports/latest.md" && pass "report now shows the conflict" || fail "report missing conflict"
+grep -q "Conflict" "$S/reports/latest.md" && pass "report now shows the conflict" || fail "report missing conflict"
 
 
 echo "== ask =="
