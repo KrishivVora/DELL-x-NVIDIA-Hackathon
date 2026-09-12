@@ -11,7 +11,8 @@
 #   home-dot-claude/   ~/.claude  (session transcripts, memory, settings, todos ...)
 #                      EXCLUDED: .credentials.json, shell-snapshots/ (env dumps),
 #                      statsig/, cache dirs, debug logs, lock files
-#   scratchpad/        /tmp/claude-1000/*/*  (subagent transcripts, task outputs)
+#   scratchpad/        /tmp/claude-1000/*/*  (subagent transcripts, task outputs;
+#                      the bash-edit-diff cache, ~700 MB of snapshots, is excluded)
 #   repo-dot-claude/   .claude/ dirs and settings inside this repo (not the submodule)
 #   hermes-sessions/   every Hermes session exported from the sandbox as Markdown
 #   sandbox-state/     /sandbox/.hermes/workspace/labmate-state (claims, reports)
@@ -55,7 +56,7 @@ for d in /tmp/claude-1000/*/*/; do
   [ -d "$d" ] || continue
   dest="$ARCHIVE/scratchpad/$(basename "$(dirname "$d")")/$(basename "$d")"
   mkdir -p "$dest"
-  rsync -a --exclude='wt-*/' --exclude='*.venv/' --exclude='node_modules/' "$d" "$dest/"
+  rsync -a --exclude='wt-*/' --exclude='*.venv/' --exclude='node_modules/' --exclude='bash-edit-diff/' "$d" "$dest/"
 done
 [ -d "$ARCHIVE/scratchpad" ] && echo "  scratchpad -> $(du -sh "$ARCHIVE/scratchpad" | cut -f1)"
 
@@ -108,15 +109,12 @@ PATTERNS = [
     (re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----', re.S), '[REDACTED_PRIVATE_KEY]'),
     (re.compile(r'[A-Za-z0-9._%+-]+@gmail\.com'), '[redacted-email]'),
 ]
-TEXT_EXT = {'.jsonl', '.json', '.md', '.txt', '.yaml', '.yml', '.log', '.sh', '.py', '.csv', '.env', '.html', '.toml', '.ini', '.cfg', ''}
 BIG = 15 * 1024 * 1024
 total_hits, files_touched, gz = 0, 0, 0
 for dp, dn, fn in os.walk(root):
     for f in fn:
         p = os.path.join(dp, f)
         if os.path.islink(p): continue
-        ext = os.path.splitext(f)[1].lower()
-        if ext not in TEXT_EXT and not f.startswith('.'): continue
         try:
             with open(p, 'rb') as fh: raw = fh.read()
         except OSError: continue
@@ -135,11 +133,43 @@ for dp, dn, fn in os.walk(root):
 print(f"  redacted {total_hits} secret-like strings in {files_touched} files; gzipped {gz} files over 15 MB")
 PY
 
-say "Residual scan (should be empty)"
-grep -rIlE 'xox[abprs]-|xapp-|gh[pousr]_[A-Za-z0-9]{20}|github_pat_|\bhf_[A-Za-z0-9]{20}|nvapi-|mongodb://[^ ]*:[^ ]*@|BEGIN [A-Z ]*PRIVATE KEY' "$ARCHIVE" 2>/dev/null | head -20 | tee /tmp/claude-archive-residual.txt || true
+say "Residual scan (real token shapes only; placeholders like xoxb-... are ignored)"
+python3 - "$ARCHIVE" > /tmp/claude-archive-residual.txt <<'SCAN'
+import os, re, sys
+root = sys.argv[1]
+STRICT = [
+    ('slack bot token', re.compile(r'xox[abprs]-[0-9]{9,}-[0-9]{9,}-[A-Za-z0-9]{20,}')),
+    ('slack app token', re.compile(r'xapp-[0-9]-[A-Z0-9]{8,}-[0-9]{9,}-[a-f0-9]{32,}')),
+    ('github token',    re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})')),
+    ('hf token',        re.compile(r'\bhf_[A-Za-z0-9]{30,}')),
+    ('nvidia key',      re.compile(r'\bnvapi-[A-Za-z0-9_-]{30,}')),
+    ('api key',         re.compile(r'\bsk-(?:ant-)?[A-Za-z0-9_-]{30,}')),
+    ('jwt',             re.compile(r'\beyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}')),
+    ('mongodb password',re.compile(r'mongodb://[A-Za-z0-9_]+:[A-Za-z0-9%._~+-]{8,}@')),
+    ('bearer token',    re.compile(r'Bearer\s+[A-Za-z0-9._~+/=-]{30,}')),
+    ('dashboard token', re.compile(r'#token=[A-Za-z0-9._-]{16,}')),
+    ('private key',     re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+/=]{20,}')),
+    ('gmail address',   re.compile(r'[A-Za-z0-9._%+-]+@gmail\.com')),
+]
+for dp, dn, fn in os.walk(root):
+    for f in fn:
+        p = os.path.join(dp, f)
+        if os.path.islink(p) or p.endswith('.gz'): continue
+        try:
+            raw = open(p, 'rb').read()
+        except OSError: continue
+        if b'\x00' in raw[:4096]: continue
+        s = raw.decode('utf-8', 'ignore')
+        for name, rx in STRICT:
+            n = sum(1 for _ in rx.finditer(s))
+            if n: print(f"{name}: {n} in {os.path.relpath(p, root)}")
+SCAN
+cat /tmp/claude-archive-residual.txt
 if [ -s /tmp/claude-archive-residual.txt ]; then
-  printf '\nSome files above still match a secret pattern (may be gzipped or false positives). Inspect them, then re-run, or continue at your own risk.\nContinue anyway? [y/N]: '
+  printf '\nThe files above still contain something token-shaped. Inspect them (or fix the patterns) and re-run.\nContinue anyway? [y/N]: '
   read -r a; case "$a" in y|Y) ;; *) echo "Stopped; nothing committed."; exit 1;; esac
+else
+  echo "  clean"
 fi
 
 # Never commit anything larger than GitHub's hard limit.
