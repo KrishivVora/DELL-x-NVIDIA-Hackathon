@@ -2,8 +2,9 @@
 # Thin wrapper so the skill can call `labmate` instead of `python -m labmate`.
 # Installed to /usr/local/bin/labmate inside the sandbox by scripts/deploy-to-sandbox.sh.
 set -euo pipefail
-export PYTHONPATH="${PYTHONPATH:-}:${LABMATE_HOME:-/sandbox/workspace/labmate-app}"
 export LABMATE_HOME="${LABMATE_HOME:-/sandbox/workspace/labmate-app}"
+# vendor/ holds pip packages (pandas) that cannot go into the read-only Hermes venv
+export PYTHONPATH="${PYTHONPATH:-}:${LABMATE_HOME}:${LABMATE_HOME}/vendor"
 # A read-only host mount at /sandbox/projects wins over uploaded copies; the
 # agent's own state then goes to a writable tree.
 if [ -z "${LABMATE_PROJECTS_ROOT:-}" ]; then
