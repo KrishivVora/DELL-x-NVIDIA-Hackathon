@@ -193,6 +193,16 @@ MD
 
 say "Committing"
 cd "$REPO"
+if [ -n "${ARCHIVE_REMOTE:-}" ]; then
+  # Private mode: commit on a separate local branch so the archive can never
+  # ride along on a later `git push origin main`, then push that branch as the
+  # private repo's main (it carries the full project history plus the archive).
+  start_branch="$(git branch --show-current)"
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "ERROR: the working tree has uncommitted changes; commit or stash them first."; exit 1
+  fi
+  git checkout -q -B claude-archive
+fi
 git add scripts/archive-claude-files.sh "$ARCHIVE"
 git commit -q -m "chore: archive Claude Code files, Hermes sessions and demo state from the GB10
 
@@ -202,8 +212,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" || { echo "nothing to com
 echo "  $(git log -1 --format='%h %s')  ($(du -sh "$ARCHIVE" | cut -f1))"
 
 if [ -n "${ARCHIVE_REMOTE:-}" ]; then
-  say "Pushing branch claude-archive to $ARCHIVE_REMOTE"
-  git push "$ARCHIVE_REMOTE" HEAD:claude-archive
+  say "Pushing to the private repo $ARCHIVE_REMOTE (as its main branch)"
+  git push "$ARCHIVE_REMOTE" claude-archive:main
+  git checkout -q "$start_branch"
+  echo "  local branch 'claude-archive' holds the archive; '$start_branch' is untouched and claude-archive/ is gone from the working tree."
+  echo "  Add your teammates as collaborators on the private repo so they keep access."
 else
   say "Pushing to origin main"
   git push origin HEAD:main
