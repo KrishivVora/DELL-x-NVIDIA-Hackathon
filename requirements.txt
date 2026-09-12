@@ -1,0 +1,5 @@
+pymupdf
+sentence-transformers
+pymongo
+numpy
+pytest
