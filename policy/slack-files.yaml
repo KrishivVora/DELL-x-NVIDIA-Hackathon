@@ -1,0 +1,57 @@
+# OpenShell policy preset: let the sandbox download files shared in Slack.
+#
+# Slack's url_private_download lives on files.slack.com, which the built-in
+# slack preset does not cover (it allows slack.com, api.slack.com,
+# hooks.slack.com and the two Socket Mode WebSocket hosts). Without this,
+# labmate.slack_intake cannot fetch an uploaded file.
+#
+# credential_binding points at the same OpenShell provider the Slack bridge
+# uses, so the sandbox keeps only the openshell:resolve:env:... placeholder and
+# the real bot token is substituted at egress, for this host alone.
+#
+# Apply with:
+#   nemohermes my-hermes policy add --from-file policy/slack-files.yaml
+preset:
+  name: slack-files
+  description: "Download files shared in Slack (url_private_download)"
+
+network_policies:
+  slack_files:
+    name: slack_files
+    endpoints:
+      # files.slack.com is a CNAME: the connection lands on files-origin.slack.com
+      # and OpenShell matches the resolved name, so both must be listed. The
+      # denial to look for is "endpoint <host>:443 is not allowed by any policy"
+      # in: openshell logs my-hermes
+      - host: files.slack.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+        credential_binding:
+          provider: my-hermes-slack-bridge
+      - host: files-origin.slack.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+        credential_binding:
+          provider: my-hermes-slack-bridge
+      - host: files-edge.slack.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+        credential_binding:
+          provider: my-hermes-slack-bridge
+    binaries:
+      # Matched against the kernel-resolved path (/proc/<pid>/exe), not the
+      # symlink used to invoke: the venv's python3 really is /usr/bin/python3.13.
+      - { path: /usr/bin/python3* }
+      - { path: /usr/bin/python3.13 }
+      - { path: /opt/hermes/.venv/bin/python3 }
+      - { path: /opt/hermes/.venv/bin/python }
+      - { path: /usr/bin/curl }
